@@ -34,6 +34,7 @@ type Segment = {
 };
 
 const N = 12;
+const LS_KEY = 'schwedenraetsel_v1';
 
 // --- Utils ---
 const emptyGrid = (): Cell[][] =>
@@ -59,21 +60,6 @@ function cloneGrid(g: Cell[][]): Cell[][] {
 }
 function normalizeAnswer(s: string) {
   return s?.trim().toUpperCase().replace(/[^A-ZÄÖÜß]/g, '') || '';
-}
-
-// --- Draft-Persistenz (localStorage) ---
-const DRAFT_KEY = 'schwedenraetsel_draft_v1';
-function saveDraft(payload: unknown) {
-  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(payload)); } catch {}
-}
-function loadDraft<T>(): T | null {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch { return null; }
-}
-function clearDraft() {
-  try { localStorage.removeItem(DRAFT_KEY); } catch {}
 }
 
 // --- Build segments from clues ---
@@ -180,14 +166,40 @@ export default function App() {
 
   // Start-/Win-Popups
   const [showStart, setShowStart] = useState(false);
-  const [startStage, setStartStage] = useState<number>(0);  // 0..4
+  const [startStage, setStartStage] = useState<number>(0);
   const [showWin, setShowWin] = useState(false);
 
-  const prevAllCorrect = useRef(false);
+  // Countdown vorm Start
+  const [preCount, setPreCount] = useState<number | null>(null);
 
-  // Flashing für korrekt gelöste Segmente
+  // Share dropdown
+  const [shareOpen, setShareOpen] = useState(false);
+  const shareRef = useRef<HTMLDivElement | null>(null);
+
+  const prevAllCorrect = useRef(false);
+  const [warnedLS, setWarnedLS] = useState(false);
+
+  // Flashing
   const [flashingSegs, setFlashingSegs] = useState<Set<string>>(new Set());
   const prevSolvedRef = useRef<Set<string>>(new Set());
+
+  // File input
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // --- localStorage availability (once) ---
+  const canLSRef = useRef<boolean>(true);
+  if (canLSRef.current === true) {
+    try {
+      const t = '__ls_test__';
+      localStorage.setItem(t, '1');
+      localStorage.removeItem(t);
+    } catch {
+      canLSRef.current = false;
+      if (!warnedLS) {
+        console.warn('localStorage nicht verfügbar – Autosave deaktiviert.');
+      }
+    }
+  }
 
   const formatTime = (ms: number) => {
     const total = Math.max(0, Math.floor(ms));
@@ -204,12 +216,30 @@ export default function App() {
   const [modal, setModal] = useState<{ open: boolean; r: number; c: number; text: string; variant: Variant; answer: string; }>
     ({ open: false, r: 0, c: 0, text: '', variant: 'LEFT_CLUE_RIGHT', answer: '' });
 
-  // URL-Hash laden ODER lokalen Entwurf wiederherstellen
+  // ===== Draft Save helper =====
+  const saveDraft = (g: Cell[][]) => {
+    if (!canLSRef.current || locked) return;
+    try {
+      const slim = g.map(row =>
+        row.map(({ type, clue, letter, solutionIndex }) => ({ type, clue, letter, solutionIndex }))
+      );
+      localStorage.setItem(LS_KEY, JSON.stringify({ grid: slim }));
+    } catch (e) {
+      if (!warnedLS) {
+        setWarnedLS(true);
+        alert('Hinweis: Autosave konnte nicht in deinem Browser gespeichert werden. Nutze „Speichern (Lokal)“.');
+      }
+      console.warn('Autosave fehlgeschlagen:', e);
+    }
+  };
+
+  // ===== Laden: URL-Hash ODER lokaler Entwurf =====
   useEffect(() => {
     const raw = location.hash.startsWith('#') ? location.hash.slice(1) : location.hash;
     const params = new URLSearchParams(raw);
     const p = params.get('p');
     const isLocked = params.get('lock') === '1';
+
     if (p) {
       const payload = decodePayload<{ grid: Cell[][] }>(p);
       const g = payload.grid.map(row =>
@@ -218,109 +248,133 @@ export default function App() {
           solutionIndex: cell.solutionIndex ?? null, expected: null,
         }))
       );
-      setGrid(g); setMode('play'); setLocked(isLocked);
+      setGrid(g);
+      setLocked(isLocked);
+      setMode(isLocked ? 'play' : 'edit');
       setShowWin(false); setWinTimeMs(null);
       setTimeout(() => setGrid(g2 => mapExpected(g2)), 0);
-      // Timer & Startdialog zurücksetzen
-      setTimerRunning(false); setTimerStart(null); setElapsedMs(0);
-      setShowStart(true); setStartStage(0);
-      return;
-    }
 
-    // Fallback: lokalen Entwurf laden (nur wenn KEIN #p=…)
-    const draft = loadDraft<{ grid: Cell[][]; solutionNext: number }>();
-    if (draft?.grid?.length) {
-      const g = draft.grid.map(row =>
-        row.map(cell => ({
-          type: cell.type, clue: cell.clue, letter: cell.letter ?? '',
-          solutionIndex: cell.solutionIndex ?? null, expected: null,
-        }))
-      );
-      setGrid(g);
-      setSolutionNext(draft.solutionNext ?? 1);
-      setMode('edit');
-      setLocked(false);
-      setTimeout(() => setGrid(g2 => mapExpected(g2)), 0);
+      // Timer / Start je nach Modus
+      setTimerRunning(false); setTimerStart(null); setElapsedMs(0);
+      if (isLocked) { setShowStart(true); setStartStage(0); } else { setShowStart(false); setStartStage(0); }
+
+      // Edit-Link -> Hash entfernen
+      if (!isLocked) history.replaceState(null, '', location.pathname);
+    } else {
+      // Entwurf aus localStorage
+      try {
+        const rawLs = localStorage.getItem(LS_KEY);
+        if (rawLs) {
+          const saved = JSON.parse(rawLs) as { grid: Cell[][] };
+          if (saved?.grid?.length === N) {
+            const g = saved.grid.map(row =>
+              row.map(cell => ({
+                type: cell.type, clue: cell.clue, letter: cell.letter ?? '',
+                solutionIndex: cell.solutionIndex ?? null, expected: null,
+              }))
+            );
+            setGrid(g);
+            setTimeout(() => setGrid(g2 => mapExpected(g2)), 0);
+          }
+        }
+      } catch (e) {
+        console.warn('Laden aus localStorage fehlgeschlagen:', e);
+      }
     }
   }, []);
 
-  // Wenn aus Editor zu Play gewechselt wird: Startdialog zeigen
+  // ===== Debounced Autosave (nur wenn NICHT locked) =====
+  useEffect(() => {
+    if (!canLSRef.current || locked) return;
+    const id = setTimeout(() => saveDraft(grid), 250);
+    return () => clearTimeout(id);
+  }, [grid, locked]);
+
+  // ===== Sichere Speicherungen beim Tab-Verlassen / Minimieren =====
+  useEffect(() => {
+    if (!canLSRef.current || locked) return;
+    const onBeforeUnload = () => saveDraft(grid);
+    const onVis = () => { if (document.visibilityState === 'hidden') saveDraft(grid); };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [grid, locked]);
+
+  // Wenn in Play-Modus gewechselt wird: Startdialog zeigen
   useEffect(() => {
     if (mode === 'play' && timerStart === null && !showStart && !showWin) {
       setShowStart(true); setStartStage(0);
     }
   }, [mode]);
 
-  // Segmente
+  // Share dropdown schließen bei Outside/Escape
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (!shareOpen) return;
+      if (shareRef.current && !shareRef.current.contains(e.target as Node)) setShareOpen(false);
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setShareOpen(false); }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [shareOpen]);
+
+  // Segmente / Mappings
   const segments = useMemo(() => buildSegments(grid), [grid]);
-
-  // Startpfeile
   const arrowStarts = useMemo(() => {
-    const m = new Map<string, Dir>();
-    segments.forEach(s => m.set(`${s.start.r}-${s.start.c}`, s.dir));
-    return m;
+    const m = new Map<string, Dir>(); segments.forEach(s => m.set(`${s.start.r}-${s.start.c}`, s.dir)); return m;
   }, [segments]);
-
-  // Map Zelle -> Segment
   const segmentByCell = useMemo(() => {
     const m = new Map<string, Segment>();
     for (const s of segments) for (const pos of s.cells) m.set(`${pos.r}-${pos.c}`, s);
     return m;
   }, [segments]);
-
-  // Voll befüllte Segmente
   const completedSegIds = useMemo(() => {
     const ids = new Set<string>();
     for (const s of segments) {
-      if (s.cells.length && s.cells.every(({ r, c }) => (grid[r][c].letter ?? '') !== '')) {
-        ids.add(s.id);
-      }
+      if (s.cells.length && s.cells.every(({ r, c }) => (grid[r][c].letter ?? '') !== '')) ids.add(s.id);
     }
     return ids;
   }, [segments, grid]);
 
-  // expected neu mappen bei Segment-Änderung
   useEffect(() => { setGrid(g => mapExpected(g, segments)); }, [segments.length]);
 
-  // Timer-Intervall
+  // Timer
   useEffect(() => {
     if (!timerRunning || !timerStart) return;
     const id = setInterval(() => setElapsedMs(Date.now() - timerStart), 33);
     return () => clearInterval(id);
   }, [timerRunning, timerStart]);
 
-  // Alle erwarteten Buchstaben korrekt?
+  // Korrekt?
   const allCorrect = useMemo(() => {
     let hasExpected = false;
     for (const row of grid) for (const cell of row) {
-      if (cell.expected) {
-        hasExpected = true;
-        if (cell.letter !== cell.expected) return false;
-      }
+      if (cell.expected) { hasExpected = true; if (cell.letter !== cell.expected) return false; }
     }
     return hasExpected;
   }, [grid]);
 
-  // gelöste Segmente (korrekt & keine Extra-Buchstaben)
   const solvedSegIds = useMemo(() => {
     const ids = new Set<string>();
     for (const s of segments) {
       let hasAnyExpected = false; let ok = true;
       for (const { r, c } of s.cells) {
         const cell = grid[r][c];
-        if (cell.expected) {
-          hasAnyExpected = true;
-          if (cell.letter !== cell.expected) { ok = false; break; }
-        } else {
-          if ((cell.letter ?? '') !== '') { ok = false; break; }
-        }
+        if (cell.expected) { hasAnyExpected = true; if (cell.letter !== cell.expected) { ok = false; break; } }
+        else { if ((cell.letter ?? '') !== '') { ok = false; break; } }
       }
       if (hasAnyExpected && ok) ids.add(s.id);
     }
     return ids;
   }, [segments, grid]);
 
-  // Flash triggern
   useEffect(() => {
     const prev = prevSolvedRef.current;
     const newly: string[] = [];
@@ -334,7 +388,6 @@ export default function App() {
     prevSolvedRef.current = new Set(solvedSegIds);
   }, [solvedSegIds]);
 
-  // Auto-Stop & Win-Popup
   useEffect(() => {
     if (allCorrect && !prevAllCorrect.current) {
       setTimerRunning(false);
@@ -395,16 +448,7 @@ export default function App() {
     return arr;
   }, [grid]);
 
-  // --- Auto-Save des Entwurfs im Editor (debounced) ---
-  useEffect(() => {
-    if (mode !== 'edit' || locked) return;
-    const id = setTimeout(() => {
-      saveDraft({ grid, solutionNext });
-    }, 300);
-    return () => clearTimeout(id);
-  }, [grid, solutionNext, mode, locked]);
-
-  // Events
+  // --- Actions ---
   function onCellClick(r: number, c: number) {
     if (mode === 'edit' && locked) return;
 
@@ -471,14 +515,16 @@ export default function App() {
     setModal(m => ({ ...m, open: false }));
   }
 
+  // Volllöschen: auch lokalen Entwurf entfernen
   function onClearAll() {
-    if (!confirm('Rätsel wirklich komplett leeren?')) return;
+    if (!confirm('Rätsel wirklich komplett löschen (inkl. Entwurf)?')) return;
+    try { localStorage.removeItem(LS_KEY); } catch {}
     setGrid(emptyGrid());
     setSolutionMode(false); setSolutionNext(1); setActiveSeg(null);
     history.replaceState(null, '', ' ');
     setTimerRunning(false); setTimerStart(null); setElapsedMs(0);
     setShowWin(false); setWinTimeMs(null); setShowStart(false); setStartStage(0);
-    clearDraft(); // Entwurf mit löschen
+    setMode('edit'); setLocked(false);
   }
 
   function onResetSolutionNumbers() {
@@ -488,6 +534,27 @@ export default function App() {
       return g2;
     });
     setSolutionNext(1);
+  }
+
+  function resetTimer() {
+    setTimerRunning(false);
+    setTimerStart(null);
+    setElapsedMs(0);
+    setWinTimeMs(null);
+    setShowStart(false);
+  }
+  function clearAnswers() {
+    setGrid(g => {
+      const g2 = cloneGrid(g);
+      for (let r = 0; r < N; r++) {
+        for (let c = 0; c < N; c++) {
+          if (g2[r][c].type === 'empty') {
+            g2[r][c].letter = '';
+          }
+        }
+      }
+      return g2; // expected bleibt wie ist
+    });
   }
 
   function makeUrl(lock: boolean) {
@@ -501,8 +568,29 @@ export default function App() {
     return `${base}${suffix}`;
   }
 
-  function onCopyLink()       { navigator.clipboard.writeText(makeUrl(false)); alert('Link kopiert! (Editor & Lösen)'); }
-  function onCopySolveOnly()  { navigator.clipboard.writeText(makeUrl(true));  alert('Teil-Link kopiert! (Nur Lösen)'); }
+  function onCopyLink()       { navigator.clipboard.writeText(makeUrl(false)); alert('Link kopiert! (Editor)'); }
+  function onCopySolveOnly()  { navigator.clipboard.writeText(makeUrl(true));  alert('Spiel-Link kopiert! (Nur Lösen)'); }
+
+  // Countdown-Start (letzter START-Button)
+  function beginCountdown() {
+    setPreCount(5);
+  }
+
+  // Countdown-Logik: 5→1 anzeigen, bei 0 Text zeigen, dann Spiel starten
+  useEffect(() => {
+    if (preCount === null) return;
+    if (preCount > 0) {
+      const id = setTimeout(() => setPreCount(p => (p ?? 1) - 1), 1000);
+      return () => clearTimeout(id);
+    }
+    // preCount === 0: "LOS GEHTS ..." zeigen, dann nach 1s starten
+    const id = setTimeout(() => {
+      setPreCount(null);
+      onStartGame();
+    }, 1500);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preCount]);
 
   function onStartGame() {
     setShowStart(false);
@@ -511,25 +599,99 @@ export default function App() {
     setTimerRunning(true);
   }
 
+  // --- Speichern/Laden (JSON) ---
+  function saveLocalJson() {
+    const data = {
+      version: 1,
+      n: N,
+      createdAt: new Date().toISOString(),
+      grid: grid.map(row =>
+        row.map(({ type, clue, letter, solutionIndex }) => ({ type, clue, letter, solutionIndex }))
+      ),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `raetsel-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleFileChosen(f: File) {
+    try {
+      const text = await f.text();
+      const obj = JSON.parse(text) as { version: number; n: number; grid: any[][] };
+      if (!obj || obj.version !== 1 || obj.n !== N || !Array.isArray(obj.grid)) {
+        alert('Ungültige Datei.');
+        return;
+      }
+      const g: Cell[][] = obj.grid.map(row =>
+        row.map((cell: any) => ({
+          type: cell.type === 'clue' ? 'clue' : 'empty',
+          clue: cell.clue,
+          letter: cell.letter ?? '',
+          solutionIndex: cell.solutionIndex ?? null,
+          expected: null,
+        }))
+      );
+      setGrid(g);
+      setTimeout(() => setGrid(g2 => mapExpected(g2)), 0);
+      setMode('edit'); setLocked(false);
+      resetTimer();
+      saveDraft(g);
+    } catch {
+      alert('Konnte Datei nicht lesen.');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  function askLoadJson() {
+    fileInputRef.current?.click();
+  }
+
   // Clues ausblenden, solange Start offen (nur im Play-Modus)
   const hideClues = mode === 'play' && showStart;
 
   // --- Render ---
   return (
     <div className={`app ${showWin || showStart || modal.open ? 'modal-open' : ''}`}>
-      {/* Kleine Styles: Flash, Z-Index, Modal-Blocker */}
       <style>{`
         @keyframes flashCorrect { 0%{background:#0f141b}25%{background:#065f46}50%{background:#059669}100%{background:#0f141b} }
         .cell.flash-correct { animation: flashCorrect 600ms ease-in-out; }
         .modalBackdrop { z-index: 10000; }
         .modal { position: relative; z-index: 10001; }
         .app.modal-open .grid { pointer-events: none; }
+
+        .dropdown { position: relative; }
+        .dropdownMenu {
+          position: absolute; right: 0; top: calc(100% + 8px);
+          background: #1d2430; border: 1px solid #2a3442; border-radius: 8px;
+          padding: 6px; min-width: 220px; z-index: 10002;
+          box-shadow: 0 8px 22px rgba(0,0,0,.35);
+        }
+        .dropdownItem {
+          display: block; width: 100%; text-align: left;
+          background: transparent; border: none; color: #e5e7eb;
+          padding: 8px 10px; border-radius: 6px; cursor: pointer;
+        }
+        .dropdownItem:hover { background: #2a3442; }
+
+        .countOverlay {
+          position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+          pointer-events:none; font-weight:800; text-align:center;
+        }
+        .countNum { font-size: 96px; line-height: 1; }
+        .countGo  { font-size: 36px; line-height: 1.2; }
       `}</style>
 
       {showWin && <ConfettiCanvas />}
 
       <header className="bar">
-        <div className="left"><strong>Schwedenrätsel</strong></div>
+      <span className="flipX emote" style={{ fontSize: 28 }}>Miauu 🐈</span>
         <div className="center" style={{ gap: 12 }}>
           <span style={{ opacity:.9, padding:'6px 10px', border:'1px solid #2a3442', borderRadius:8, background:'#1d2430' }}>
             ⏱ {formatTime(winTimeMs ?? elapsedMs)}
@@ -545,25 +707,52 @@ export default function App() {
                     Lösungswort-Modus
                   </label>
                   {solutionMode && <button className="btn" onClick={onResetSolutionNumbers}>Nummern zurücksetzen</button>}
+                  <button className="btn" onClick={resetTimer}>Timer zurücksetzen</button>
+                  <button className="btn" onClick={clearAnswers}>Antworten löschen</button>
                 </>
               )}
             </>
-          ) : (<span style={{opacity:.9}}>Lösen · <small>Nur-Ansicht</small></span>)}
+          ) : (<span style={{opacity:.9}}>MinimalMB's Kreuzworträtsel</span>)}
         </div>
-        <div className="right">
+
+        <div className="right" style={{ display: 'flex', gap: 8 }}>
           {!locked ? (
             <>
-              <button className="btn" onClick={onCopySolveOnly}>Teilen (Nur Lösen)</button>
-              <button className="btn" onClick={onCopyLink}>Link kopieren</button>
-              <button className="btn" onClick={onClearAll}>Alles löschen</button>
-              {/* optional: Entwurf explizit löschen */}
-              {mode === 'edit' && (
-                <button className="btn" onClick={() => { clearDraft(); alert('Lokaler Entwurf gelöscht.'); }}>
-                  Entwurf löschen
+              <button className="btn" onClick={saveLocalJson}>Speichern (Lokal)</button>
+              <button className="btn" onClick={askLoadJson}>Laden (JSON)</button>
+
+              {/* Teilen-Dropdown */}
+              <div className="dropdown" ref={shareRef}>
+                <button className="btn" onClick={() => setShareOpen(o => !o)} aria-expanded={shareOpen}>
+                  Teilen ▾
                 </button>
-              )}
+                {shareOpen && (
+                  <div className="dropdownMenu" role="menu">
+                    <button className="dropdownItem" onClick={() => { onCopyLink(); setShareOpen(false); }}>
+                      Edit Link kopieren
+                    </button>
+                    <button className="dropdownItem" onClick={() => { onCopySolveOnly(); setShareOpen(false); }}>
+                      Spiel Link kopieren
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button className="btn danger" onClick={onClearAll}>Löschen</button>
             </>
           ) : null}
+
+          {/* versteckter File-Input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleFileChosen(f);
+            }}
+          />
         </div>
       </header>
 
@@ -671,11 +860,10 @@ export default function App() {
         </div>
       )}
 
-      {/* Start-Modal mit „Schnitzeljagd“ */}
+      {/* Start-Modal mit Minigame + Countdown */}
       {showStart && (
         <div className="modalBackdrop">
           <div className="modal" onClick={e => e.stopPropagation()}>
-
             <h2 style={{marginTop:0, textAlign:'center'}}>🐪EY! Bist du Bereit?🐪</h2>
             <p style={{ opacity:.9, marginTop:8, textAlign:'center' }}>
               Klicke doch ganz einfach auf den  <strong>START</strong> Button, um den Timer zu starten.
@@ -684,25 +872,13 @@ export default function App() {
               <strong>🤭Hö Hö.. Hihihihi🤓</strong>
             </p>
 
-            {/* Spielwiese für die Buttons */}
-            <div
-              className="startArea"
-              style={{
-                position:'relative',
-                marginTop:12,
-                height: 220,
-                borderRadius: 10,
-              }}
-            >
-              {/* Stage 0: normal unten zentriert */}
-              {startStage === 0 && (
+            <div className="startArea" style={{ position:'relative', marginTop:12, height: 220, borderRadius: 10 }}>
+              {startStage === 0 && preCount === null && (
                 <div style={{position:'absolute', left:'50%', transform:'translateX(-50%)', bottom:10, textAlign:'center'}}>
                   <button className="btn" onClick={() => setStartStage(1)}>START</button>
                 </div>
               )}
-
-              {/* Stage 1: oben rechts + Text darunter */}
-              {startStage === 1 && (
+              {startStage === 1 && preCount === null && (
                 <>
                   <div style={{position:'absolute', right:8, top:8}}>
                     <button className="btn" onClick={() => setStartStage(2)}>START</button>
@@ -710,9 +886,7 @@ export default function App() {
                   <div style={{position:'absolute', right:8, top:52, opacity:.9}}>Los klick ihn doch ⬆️</div>
                 </>
               )}
-
-              {/* Stage 2: unten links + Text darüber */}
-              {startStage === 2 && (
+              {startStage === 2 && preCount === null && (
                 <>
                   <div style={{position:'absolute', left:8, bottom:52, opacity:.9}}>
                     ⬇️Warum drückst du ihn nicht?
@@ -722,9 +896,7 @@ export default function App() {
                   </div>
                 </>
               )}
-
-              {/* Stage 3: rechts mittig + Text darunter */}
-              {startStage === 3 && (
+              {startStage === 3 && preCount === null && (
                 <>
                   <div style={{position:'absolute', right:20, top:'50%', transform:'translateY(-50%)'}}>
                     <button className="btn" onClick={() => setStartStage(4)}>START</button>
@@ -734,17 +906,26 @@ export default function App() {
                   </div>
                 </>
               )}
-
-              {/* Stage 4: final unten mittig + Text darüber -> startet Spiel */}
-              {startStage === 4 && (
+              {startStage === 4 && preCount === null && (
                 <>
                   <div style={{position:'absolute', left:'50%', transform:'translateX(-50%)', bottom:52, opacity:.9}}>
                     Hö höö,⬇️hihihihi
                   </div>
                   <div style={{position:'absolute', left:'50%', transform:'translateX(-50%)', bottom:8}}>
-                    <button className="btn" onClick={onStartGame}>START</button>
+                    <button className="btn" onClick={beginCountdown}>START</button>
                   </div>
                 </>
+              )}
+
+              {/* Countdown-Overlay */}
+              {preCount !== null && (
+                <div className="countOverlay">
+                  {preCount > 0 ? (
+                    <div className="countNum">{preCount}</div>
+                  ) : (
+                    <div className="countGo">LOS GEHTS DIE WILDE FAHRT!</div>
+                  )}
+                </div>
               )}
             </div>
           </div>
