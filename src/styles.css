@@ -162,3 +162,10 @@ textarea, input[type="text"] {
   :root { --cell: 60px; }
   .app { padding: 0 8px; }
 }
+.modalBackdrop { 
+  z-index: 10000;         
+}
+.modal {
+  position: relative; 
+  z-index: 10001;         
+}

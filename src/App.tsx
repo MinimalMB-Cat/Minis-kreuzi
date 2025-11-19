@@ -1,4 +1,4 @@
-// Ersetzt deine base64-Helper:
+/* eslint-disable react-hooks/exhaustive-deps */
 declare global { interface Window { LZString: any } }
 
 function encodePayload(obj: unknown): string {
@@ -16,26 +16,20 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 type Dir = 'RIGHT' | 'DOWN';
 export type Variant = 'LEFT_CLUE_RIGHT' | 'ABOVE_CLUE_DOWN' | 'LEFT_CLUE_DOWN';
 
-type Clue = {
-  text: string;
-  variant: Variant;
-  answer?: string; // optional: Lösung zur Validierung
-};
-
+type Clue = { text: string; variant: Variant; answer?: string };
 type Cell = {
   type: 'empty' | 'clue';
   clue?: Clue;
   letter?: string;
   solutionIndex?: number | null;
-  expected?: string | null; // aus answer gemappt
+  expected?: string | null;
 };
-
 type Segment = {
   id: string;
   cluePos: { r: number; c: number };
   dir: Dir;
-  start: { r: number; c: number };    // erstes Antwortfeld
-  cells: { r: number; c: number }[];   // alle Antwortzellen bis vor nächstes clue
+  start: { r: number; c: number };
+  cells: { r: number; c: number }[];
   clue: Clue;
 };
 
@@ -60,11 +54,9 @@ function letterFromKey(e: KeyboardEvent): string | null {
   if (e.key.length === 1 && /[a-zA-ZäöüÄÖÜß]/.test(e.key)) return e.key.toUpperCase();
   return null;
 }
-
 function cloneGrid(g: Cell[][]): Cell[][] {
   return g.map(row => row.map(c => ({ ...c, clue: c.clue ? { ...c.clue } : undefined })));
 }
-
 function normalizeAnswer(s: string) {
   return s?.trim().toUpperCase().replace(/[^A-ZÄÖÜß]/g, '') || '';
 }
@@ -91,14 +83,13 @@ function buildSegments(grid: Cell[][]): Segment[] {
       const cells: { r: number; c: number }[] = [];
       let cur = { ...start };
       while (inBounds(cur.r, cur.c)) {
-        if (grid[cur.r][cur.c].type === 'clue') break; // stop vor nächstem Hinweis
+        if (grid[cur.r][cur.c].type === 'clue') break;
         cells.push({ ...cur });
         const nxt = advance(cur.r, cur.c, dir);
         if (!inBounds(nxt.r, nxt.c)) break;
         if (grid[nxt.r][nxt.c].type === 'clue') break;
         cur = nxt;
       }
-
       segs.push({ id: `${r}-${c}`, cluePos: { r, c }, dir, start, cells, clue });
     }
   }
@@ -120,74 +111,42 @@ function mapExpected(g: Cell[][], segs?: Segment[]) {
   return grid;
 }
 
-/** Kleiner Konfetti-Canvas */
+/** Konfetti-Canvas */
 function ConfettiCanvas() {
   const ref = useRef<HTMLCanvasElement | null>(null);
-
   useEffect(() => {
-    const cnv = ref.current!;
-    const ctx = cnv.getContext('2d')!;
+    const cnv = ref.current!; const ctx = cnv.getContext('2d')!;
     const dpr = Math.max(1, window.devicePixelRatio || 1);
-
     function resize() {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      cnv.width = Math.floor(w * dpr);
-      cnv.height = Math.floor(h * dpr);
-      cnv.style.width = `${w}px`;
-      cnv.style.height = `${h}px`;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(dpr, dpr);
+      const w = innerWidth, h = innerHeight;
+      cnv.width = Math.floor(w*dpr); cnv.height = Math.floor(h*dpr);
+      cnv.style.width = `${w}px`; cnv.style.height = `${h}px`;
+      ctx.setTransform(1,0,0,1,0,0); ctx.scale(dpr,dpr);
     }
-    resize();
-    window.addEventListener('resize', resize);
-
-    type P = { x:number; y:number; vx:number; vy:number; r:number; rot:number; vr:number; color:string };
+    resize(); addEventListener('resize', resize);
+    type P = { x:number;y:number;vx:number;vy:number;r:number;rot:number;vr:number;color:string };
     const colors = ['#22d3ee','#f97316','#84cc16','#a78bfa','#eab308','#f43f5e','#10b981'];
-    const parts: P[] = Array.from({length: 140}, () => ({
-      x: Math.random()*window.innerWidth,
-      y: -20-Math.random()*200,
-      vx: -1 + Math.random()*2,
-      vy: 2 + Math.random()*2,
-      r: 3 + Math.random()*4,
-      rot: Math.random()*Math.PI*2,
-      vr: (-0.2 + Math.random()*0.4),
-      color: colors[(Math.random()*colors.length)|0]
+    const parts: P[] = Array.from({length:140},()=>({
+      x: Math.random()*innerWidth, y: -20-Math.random()*200,
+      vx: -1+Math.random()*2, vy: 2+Math.random()*2,
+      r: 3+Math.random()*4, rot: Math.random()*Math.PI*2,
+      vr: -0.2+Math.random()*0.4, color: colors[(Math.random()*colors.length)|0]
     }));
-    let raf = 0;
-    const gravity = 0.05;
-    const drag = 0.995;
-
-    function tick() {
-      ctx.clearRect(0,0,window.innerWidth,window.innerHeight);
-      for (const p of parts) {
-        p.vx *= drag;
-        p.vy = p.vy*drag + gravity;
-        p.x += p.vx;
-        p.y += p.vy;
-        p.rot += p.vr;
-        if (p.y > window.innerHeight + 50) {
-          p.y = -20; p.x = Math.random()*window.innerWidth; p.vy = 2 + Math.random()*2;
-        }
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.rot);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(-p.r, -p.r, p.r*2, p.r*2);
-        ctx.restore();
+    let raf=0; const gravity=0.05, drag=0.995;
+    function tick(){
+      const w=innerWidth,h=innerHeight; ctx.clearRect(0,0,w,h);
+      for(const p of parts){
+        p.vx*=drag; p.vy=p.vy*drag+gravity; p.x+=p.vx; p.y+=p.vy; p.rot+=p.vr;
+        if(p.y>h+50){ p.y=-20; p.x=Math.random()*w; p.vy=2+Math.random()*2; }
+        ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot);
+        ctx.fillStyle=p.color; ctx.fillRect(-p.r,-p.r,p.r*2,p.r*2); ctx.restore();
       }
-      raf = requestAnimationFrame(tick);
+      raf=requestAnimationFrame(tick);
     }
-    raf = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+    raf=requestAnimationFrame(tick);
+    return ()=>{ cancelAnimationFrame(raf); removeEventListener('resize',resize); };
   }, []);
-
-  return (
-    <canvas
-      ref={ref}
-      style={{ position:'fixed', inset:0, pointerEvents:'none', zIndex: 999 }}
-    />
-  );
+  return <canvas ref={ref} style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:999}} />;
 }
 
 // --- App ---
@@ -196,19 +155,22 @@ export default function App() {
   const [mode, setMode] = useState<'edit' | 'play'>('edit');
   const [solutionMode, setSolutionMode] = useState(false);
   const [solutionNext, setSolutionNext] = useState(1);
-  const [locked, setLocked] = useState(false); // Nur-Lösen-Link?
+  const [locked, setLocked] = useState(false);
 
-  // ===== Timer (mm:ss.hh) =====
+  // Timer
   const [timerRunning, setTimerRunning] = useState(false);
   const [timerStart, setTimerStart] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [winTimeMs, setWinTimeMs] = useState<number | null>(null);
 
-  // Win-Popup
+  // Start-/Win-Popups
+  const [showStart, setShowStart] = useState(false);
+  const [startStage, setStartStage] = useState<number>(0);  // 0..4 (4 = final klick startet)
   const [showWin, setShowWin] = useState(false);
+
   const prevAllCorrect = useRef(false);
 
-  // NEU: Flashing-Set für gelöste Segmente (kurz grün blinken)
+  // Flashing für korrekt gelöste Segmente
   const [flashingSegs, setFlashingSegs] = useState<Set<string>>(new Set());
   const prevSolvedRef = useRef<Set<string>>(new Set());
 
@@ -216,27 +178,18 @@ export default function App() {
     const total = Math.max(0, Math.floor(ms));
     const mm = Math.floor(total / 60000);
     const ss = String(Math.floor((total % 60000) / 1000)).padStart(2, '0');
-    const hh = String(Math.floor((total % 1000) / 10)).padStart(2, '0'); // Hundertstel
+    const hh = String(Math.floor((total % 1000) / 10)).padStart(2, '0');
     return `${mm}:${ss}.${hh}`;
   };
 
   // Schreibauswahl
-  const [activeSeg, setActiveSeg] = useState<{
-    seg: Segment;
-    index: number;
-  } | null>(null);
+  const [activeSeg, setActiveSeg] = useState<{ seg: Segment; index: number } | null>(null);
 
-  // Modal
-  const [modal, setModal] = useState<{
-    open: boolean;
-    r: number;
-    c: number;
-    text: string;
-    variant: Variant;
-    answer: string;
-  }>({ open: false, r: 0, c: 0, text: '', variant: 'LEFT_CLUE_RIGHT', answer: '' });
+  // Hinweis-Modal
+  const [modal, setModal] = useState<{ open: boolean; r: number; c: number; text: string; variant: Variant; answer: string; }>
+    ({ open: false, r: 0, c: 0, text: '', variant: 'LEFT_CLUE_RIGHT', answer: '' });
 
-  // URL-Hash laden: #p=...&lock=1
+  // URL-Hash laden
   useEffect(() => {
     const raw = location.hash.startsWith('#') ? location.hash.slice(1) : location.hash;
     const params = new URLSearchParams(raw);
@@ -246,28 +199,30 @@ export default function App() {
       const payload = decodePayload<{ grid: Cell[][] }>(p);
       const g = payload.grid.map(row =>
         row.map(cell => ({
-          type: cell.type,
-          clue: cell.clue,
-          letter: cell.letter ?? '',
-          solutionIndex: cell.solutionIndex ?? null,
-          expected: null,
+          type: cell.type, clue: cell.clue, letter: cell.letter ?? '',
+          solutionIndex: cell.solutionIndex ?? null, expected: null,
         }))
       );
-      setGrid(g);
-      setMode('play');
-      setLocked(isLocked);
+      setGrid(g); setMode('play'); setLocked(isLocked);
       setShowWin(false); setWinTimeMs(null);
       setTimeout(() => setGrid(g2 => mapExpected(g2)), 0);
-
-      // Timer reset beim Laden eines Links
+      // Timer & Startdialog zurücksetzen
       setTimerRunning(false); setTimerStart(null); setElapsedMs(0);
+      setShowStart(true); setStartStage(0);
     }
   }, []);
+
+  // Wenn aus Editor zu Play gewechselt wird: Startdialog zeigen
+  useEffect(() => {
+    if (mode === 'play' && timerStart === null && !showStart && !showWin) {
+      setShowStart(true); setStartStage(0);
+    }
+  }, [mode]);
 
   // Segmente
   const segments = useMemo(() => buildSegments(grid), [grid]);
 
-  // Startpfeile: Map von Startzelle -> Richtung
+  // Startpfeile
   const arrowStarts = useMemo(() => {
     const m = new Map<string, Dir>();
     segments.forEach(s => m.set(`${s.start.r}-${s.start.c}`, s.dir));
@@ -281,7 +236,7 @@ export default function App() {
     return m;
   }, [segments]);
 
-  // Set fertig befüllter Segmente (alle Buchstaben gesetzt)
+  // Voll befüllte Segmente
   const completedSegIds = useMemo(() => {
     const ids = new Set<string>();
     for (const s of segments) {
@@ -292,7 +247,7 @@ export default function App() {
     return ids;
   }, [segments, grid]);
 
-  // expected mappen, wenn Segmente sich ändern
+  // expected neu mappen bei Segment-Änderung
   useEffect(() => { setGrid(g => mapExpected(g, segments)); }, [segments.length]);
 
   // Timer-Intervall
@@ -314,19 +269,17 @@ export default function App() {
     return hasExpected;
   }, [grid]);
 
-  // NEU: gelöste Segmente (korrekt & keine Extra-Buchstaben)
+  // gelöste Segmente (korrekt & keine Extra-Buchstaben)
   const solvedSegIds = useMemo(() => {
     const ids = new Set<string>();
     for (const s of segments) {
-      let hasAnyExpected = false;
-      let ok = true;
+      let hasAnyExpected = false; let ok = true;
       for (const { r, c } of s.cells) {
         const cell = grid[r][c];
         if (cell.expected) {
           hasAnyExpected = true;
           if (cell.letter !== cell.expected) { ok = false; break; }
         } else {
-          // Keine erwartete Vorgabe -> darf nicht befüllt sein
           if ((cell.letter ?? '') !== '') { ok = false; break; }
         }
       }
@@ -335,42 +288,32 @@ export default function App() {
     return ids;
   }, [segments, grid]);
 
-  // NEU: Flash triggern für neu gelöste Segmente
+  // Flash triggern
   useEffect(() => {
     const prev = prevSolvedRef.current;
-    const newlySolved: string[] = [];
-    solvedSegIds.forEach(id => { if (!prev.has(id)) newlySolved.push(id); });
-
-    if (newlySolved.length) {
-      newlySolved.forEach(id => {
-        setFlashingSegs(s => {
-          const ns = new Set(s);
-          ns.add(id);
-          return ns;
-        });
-        setTimeout(() => {
-          setFlashingSegs(s => {
-            const ns = new Set(s);
-            ns.delete(id);
-            return ns;
-          });
-        }, 600); // Blinkdauer passend zur Animation
+    const newly: string[] = [];
+    solvedSegIds.forEach(id => { if (!prev.has(id)) newly.push(id); });
+    if (newly.length) {
+      newly.forEach(id => {
+        setFlashingSegs(s => new Set(s).add(id));
+        setTimeout(() => setFlashingSegs(s => { const ns = new Set(s); ns.delete(id); return ns; }), 600);
       });
     }
     prevSolvedRef.current = new Set(solvedSegIds);
   }, [solvedSegIds]);
 
-  // Auto-Stop & Win-Popup (nur einmal)
+  // Auto-Stop & Win-Popup
   useEffect(() => {
     if (allCorrect && !prevAllCorrect.current) {
       setTimerRunning(false);
       setWinTimeMs(elapsedMs);
+      setActiveSeg(null);          // Markierung entfernen (verhindert Overlay über Modal)
       setShowWin(true);
     }
     prevAllCorrect.current = allCorrect;
   }, [allCorrect, elapsedMs]);
 
-  // Tastaturhandler
+  // Tastatur
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (mode !== 'play' || !activeSeg) return;
@@ -381,9 +324,8 @@ export default function App() {
         setGrid(g => {
           const g2 = cloneGrid(g);
           const { r, c } = seg.cells[index];
-          if (g2[r][c].letter) {
-            g2[r][c].letter = '';
-          } else if (index > 0) {
+          if (g2[r][c].letter) g2[r][c].letter = '';
+          else if (index > 0) {
             const prev = seg.cells[index - 1];
             g2[prev.r][prev.c].letter = '';
             setActiveSeg({ seg, index: index - 1 });
@@ -396,12 +338,6 @@ export default function App() {
       const L = letterFromKey(e);
       if (L) {
         e.preventDefault();
-        // Timer beim allerersten Eingabebuchstaben starten
-        if (!timerRunning && timerStart === null) {
-          setTimerStart(Date.now());
-          setElapsedMs(0);
-          setTimerRunning(true);
-        }
         setGrid(g => {
           const g2 = cloneGrid(g);
           const { r, c } = seg.cells[index];
@@ -413,18 +349,14 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeSeg, mode, timerRunning, timerStart]);
+  }, [activeSeg, mode]);
 
-  // Lösungswort anzeigen
+  // Lösungswort
   const solutionSlots = useMemo(() => {
     const pairs: { idx: number; ch: string }[] = [];
-    grid.forEach(row =>
-      row.forEach(cell => {
-        if ((cell.solutionIndex ?? 0) > 0) {
-          pairs.push({ idx: cell.solutionIndex!, ch: cell.letter || '' });
-        }
-      })
-    );
+    grid.forEach(row => row.forEach(cell => {
+      if ((cell.solutionIndex ?? 0) > 0) pairs.push({ idx: cell.solutionIndex!, ch: cell.letter || '' });
+    }));
     const max = pairs.reduce((m, p) => Math.max(m, p.idx), 0);
     const arr = Array.from({ length: max }, () => '');
     pairs.forEach(p => (arr[p.idx - 1] = p.ch || ''));
@@ -436,21 +368,18 @@ export default function App() {
     if (mode === 'edit' && locked) return;
 
     if (mode === 'edit') {
-      // Lösungswort-Nummern setzen
       if (solutionMode) {
         const wasEmpty = !grid[r][c].solutionIndex;
         const nextNo = solutionNext;
         setGrid(g => {
           const g2 = cloneGrid(g);
           const cell = g2[r][c];
-          if (!cell.solutionIndex) cell.solutionIndex = nextNo;
-          else cell.solutionIndex = null;
+          if (!cell.solutionIndex) cell.solutionIndex = nextNo; else cell.solutionIndex = null;
           return g2;
         });
         if (wasEmpty) setSolutionNext(n => n + 1);
         return;
       }
-      // Hinweis-Modal öffnen
       const cell = grid[r][c];
       setModal({
         open: true, r, c,
@@ -461,7 +390,7 @@ export default function App() {
       return;
     }
 
-    // play mode
+    // play
     const cell = grid[r][c];
     if (cell.type === 'clue' && cell.clue) {
       const seg = segments.find(s => s.cluePos.r === r && s.cluePos.c === c);
@@ -484,7 +413,6 @@ export default function App() {
       cell.clue = { text: text.trim(), variant, answer: normalizeAnswer(modal.answer) };
       return g2;
     });
-    // expected-Mapping sofort aktualisieren
     setTimeout(() => setGrid(g2 => mapExpected(g2)), 0);
     setModal(m => ({ ...m, open: false }));
   }
@@ -492,22 +420,11 @@ export default function App() {
   function onDeleteClue() {
     const { r, c } = modal;
     setGrid(g => {
-      const segs = buildSegments(g); // Segment vor dem Entfernen ermitteln
+      const segs = buildSegments(g);
       const seg = segs.find(s => s.cluePos.r === r && s.cluePos.c === c);
       const g2 = cloneGrid(g);
-
-      // Segment-bezogene Lösungsnummern entfernen
-      if (seg) {
-        for (const pos of seg.cells) {
-          g2[pos.r][pos.c].solutionIndex = null;
-        }
-      }
-
-      // Hinweisfeld zurücksetzen
-      g2[r][c].type = 'empty';
-      delete g2[r][c].clue;
-
-      // expected neu mappen
+      if (seg) for (const pos of seg.cells) g2[pos.r][pos.c].solutionIndex = null;
+      g2[r][c].type = 'empty'; delete g2[r][c].clue;
       return mapExpected(g2);
     });
     setModal(m => ({ ...m, open: false }));
@@ -516,12 +433,10 @@ export default function App() {
   function onClearAll() {
     if (!confirm('Rätsel wirklich komplett leeren?')) return;
     setGrid(emptyGrid());
-    setSolutionMode(false);
-    setSolutionNext(1);
-    setActiveSeg(null);
+    setSolutionMode(false); setSolutionNext(1); setActiveSeg(null);
     history.replaceState(null, '', ' ');
     setTimerRunning(false); setTimerStart(null); setElapsedMs(0);
-    setShowWin(false); setWinTimeMs(null);
+    setShowWin(false); setWinTimeMs(null); setShowStart(false); setStartStage(0);
   }
 
   function onResetSolutionNumbers() {
@@ -544,44 +459,39 @@ export default function App() {
     return `${base}${suffix}`;
   }
 
-  function onCopyLink() {
-    const url = makeUrl(false);
-    navigator.clipboard.writeText(url);
-    alert('Link kopiert! (Editor & Lösen)');
+  function onCopyLink()       { navigator.clipboard.writeText(makeUrl(false)); alert('Link kopiert! (Editor & Lösen)'); }
+  function onCopySolveOnly()  { navigator.clipboard.writeText(makeUrl(true));  alert('Teil-Link kopiert! (Nur Lösen)'); }
+
+  function onStartGame() {
+    setShowStart(false);
+    setTimerStart(Date.now());
+    setElapsedMs(0);
+    setTimerRunning(true);
   }
-  function onCopySolveOnly() {
-    const url = makeUrl(true);
-    navigator.clipboard.writeText(url);
-    alert('Teil-Link kopiert! (Nur Lösen)');
-  }
+
+  // Clues ausblenden, solange Start offen (nur im Play-Modus)
+  const hideClues = mode === 'play' && showStart;
 
   // --- Render ---
   return (
-    <div className="app">
-      {/* Styles nur für das kurze Grünblinken */}
+    <div className={`app ${showWin || showStart || modal.open ? 'modal-open' : ''}`}>
+      {/* Kleine Styles: Flash, Z-Index, Modal-Blocker */}
       <style>{`
-        @keyframes flashCorrect {
-          0%   { background: #0f141b; }
-          25%  { background: #065f46; } /* grün-dunkel */
-          50%  { background: #059669; } /* grün */
-          100% { background: #0f141b; }
-        }
-        .cell.flash-correct {
-          animation: flashCorrect 600ms ease-in-out;
-        }
+        @keyframes flashCorrect { 0%{background:#0f141b}25%{background:#065f46}50%{background:#059669}100%{background:#0f141b} }
+        .cell.flash-correct { animation: flashCorrect 600ms ease-in-out; }
+        .modalBackdrop { z-index: 10000; }
+        .modal { position: relative; z-index: 10001; }
+        .app.modal-open .grid { pointer-events: none; }
       `}</style>
 
-      {/* Konfetti bei Gewinn */}
       {showWin && <ConfettiCanvas />}
 
       <header className="bar">
         <div className="left"><strong>Schwedenrätsel</strong></div>
-
         <div className="center" style={{ gap: 12 }}>
-          <span style={{ opacity: .9, padding: '6px 10px', border: '1px solid #2a3442', borderRadius: 8, background: '#1d2430' }}>
+          <span style={{ opacity:.9, padding:'6px 10px', border:'1px solid #2a3442', borderRadius:8, background:'#1d2430' }}>
             ⏱ {formatTime(winTimeMs ?? elapsedMs)}
           </span>
-
           {!locked ? (
             <>
               <button className={mode === 'edit' ? 'btn active' : 'btn'} onClick={() => setMode('edit')}>Editor</button>
@@ -596,11 +506,8 @@ export default function App() {
                 </>
               )}
             </>
-          ) : (
-            <span style={{opacity:.9}}>Lösen · <small>Nur-Ansicht</small></span>
-          )}
+          ) : (<span style={{opacity:.9}}>Lösen · <small>Nur-Ansicht</small></span>)}
         </div>
-
         <div className="right">
           {!locked ? (
             <>
@@ -617,16 +524,14 @@ export default function App() {
           <div className="row" key={r}>
             {row.map((cell, c) => {
               const isActive = !!activeSeg?.seg.cells.find(cc => cc.r === r && cc.c === c) &&
-                activeSeg?.seg.cells[activeSeg.index]?.r === r &&
-                activeSeg?.seg.cells[activeSeg.index]?.c === c;
+                               activeSeg?.seg.cells[activeSeg.index]?.r === r &&
+                               activeSeg?.seg.cells[activeSeg.index]?.c === c;
 
               const segForCell = segmentByCell.get(`${r}-${c}`);
               const isFlashing = !!(segForCell && flashingSegs.has(segForCell.id));
 
-              // Rot erst, wenn komplettes Segment voll ist
               const wrongNow = !!(
-                segForCell &&
-                completedSegIds.has(segForCell.id) &&
+                segForCell && completedSegIds.has(segForCell.id) &&
                 cell.expected && cell.letter && cell.letter !== cell.expected
               );
 
@@ -642,7 +547,9 @@ export default function App() {
 
               return (
                 <div className={classNames} key={`${r}-${c}`} onClick={() => onCellClick(r, c)}>
-                  {cell.type === 'clue' && cell.clue && (<div className="clueText">{cell.clue.text}</div>)}
+                  {cell.type === 'clue' && cell.clue && (
+                    <div className="clueText">{hideClues ? '' : cell.clue.text}</div>
+                  )}
                   {cell.type === 'empty' && (cell.letter ?? '')}
                   {startDir === 'RIGHT' && <div className="arrow right" />}
                   {startDir === 'DOWN'  && <div className="arrow down"  />}
@@ -681,20 +588,17 @@ export default function App() {
             <div className="variantRow">
               <label className="variant">
                 <input type="radio" name="v" checked={modal.variant === 'LEFT_CLUE_RIGHT'}
-                  onChange={() => setModal(m => ({ ...m, variant: 'LEFT_CLUE_RIGHT' }))}
-                />
+                  onChange={() => setModal(m => ({ ...m, variant: 'LEFT_CLUE_RIGHT' }))} />
                 <span>links Hinweis, Pfeil →</span>
               </label>
               <label className="variant">
                 <input type="radio" name="v" checked={modal.variant === 'ABOVE_CLUE_DOWN'}
-                  onChange={() => setModal(m => ({ ...m, variant: 'ABOVE_CLUE_DOWN' }))}
-                />
+                  onChange={() => setModal(m => ({ ...m, variant: 'ABOVE_CLUE_DOWN' }))} />
                 <span>oben Hinweis, Pfeil ↓</span>
               </label>
               <label className="variant">
                 <input type="radio" name="v" checked={modal.variant === 'LEFT_CLUE_DOWN'}
-                  onChange={() => setModal(m => ({ ...m, variant: 'LEFT_CLUE_DOWN' }))}
-                />
+                  onChange={() => setModal(m => ({ ...m, variant: 'LEFT_CLUE_DOWN' }))} />
                 <span>links Hinweis, Pfeil ↓ (Start rechts, dann runter)</span>
               </label>
             </div>
@@ -702,17 +606,11 @@ export default function App() {
             <label className="lab">Antwort (optional, für Prüfung)</label>
             <input type="text" placeholder="z.B. LAVA"
               value={modal.answer}
-              onChange={e => setModal(m => ({ ...m, answer: e.target.value }))}
-            />
+              onChange={e => setModal(m => ({ ...m, answer: e.target.value }))} />
 
-            {/* Footer: links Löschen, rechts OK/Abbrechen */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 12 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', gap:8, marginTop:12 }}>
               <div>
-                <button
-                  className="btn danger"
-                  disabled={!grid[modal.r][modal.c].clue}
-                  onClick={onDeleteClue}
-                >
+                <button className="btn danger" disabled={!grid[modal.r][modal.c].clue} onClick={onDeleteClue}>
                   Löschen
                 </button>
               </div>
@@ -720,6 +618,86 @@ export default function App() {
                 <button className="btn" onClick={onModalOk}>OK</button>
                 <button className="btn" onClick={() => setModal(m => ({ ...m, open: false }))}>Abbrechen</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Start-Modal mit „Schnitzeljagd“ */}
+      {showStart && (
+        <div className="modalBackdrop">
+          <div className="modal" onClick={e => e.stopPropagation()}>
+
+            <h2 style={{marginTop:0, textAlign:'center'}}>🐪EY! Bist du Bereit?🐪</h2>
+            <p style={{ opacity:.9, marginTop:8, textAlign:'center' }}>
+              Klicke doch ganz einfach auf den  <strong>START</strong> Button, um den Timer zu starten.
+            </p>
+            <p style={{ opacity:.9, marginTop:8, textAlign:'center' }}>
+              <strong>🤭Hö Hö.. Hihihihi🤓</strong>
+            </p>
+
+            {/* Spielwiese für die Buttons */}
+            <div
+              className="startArea"
+              style={{
+                position:'relative',
+                marginTop:12,
+                height: 220,
+                borderRadius: 10,
+              }}
+            >
+              {/* Stage 0: normal unten zentriert */}
+              {startStage === 0 && (
+                <div style={{position:'absolute', left:'50%', transform:'translateX(-50%)', bottom:10, textAlign:'center'}}>
+                  <button className="btn" onClick={() => setStartStage(1)}>START</button>
+                </div>
+              )}
+
+              {/* Stage 1: oben rechts + Text darunter */}
+              {startStage === 1 && (
+                <>
+                  <div style={{position:'absolute', right:8, top:8}}>
+                    <button className="btn" onClick={() => setStartStage(2)}>START</button>
+                  </div>
+                  <div style={{position:'absolute', right:8, top:52, opacity:.9}}>Los klick ihn doch ⬆️</div>
+                </>
+              )}
+
+              {/* Stage 2: unten links + Text darüber */}
+              {startStage === 2 && (
+                <>
+                  <div style={{position:'absolute', left:8, bottom:52, opacity:.9}}>
+                    ⬇️Warum drückst du ihn nicht?
+                  </div>
+                  <div style={{position:'absolute', left:8, bottom:8}}>
+                    <button className="btn" onClick={() => setStartStage(3)}>START</button>
+                  </div>
+                </>
+              )}
+
+              {/* Stage 3: rechts mittig + Text darunter */}
+              {startStage === 3 && (
+                <>
+                  <div style={{position:'absolute', right:20, top:'50%', transform:'translateY(-50%)'}}>
+                    <button className="btn" onClick={() => setStartStage(4)}>START</button>
+                  </div>
+                  <div style={{position:'absolute', right:10, top:'calc(50% + 36px)', opacity:.9}}>
+                    Kannst du überhaupt BUTTONS drücken? 🧌
+                  </div>
+                </>
+              )}
+
+              {/* Stage 4: final unten mittig + Text darüber -> startet Spiel */}
+              {startStage === 4 && (
+                <>
+                  <div style={{position:'absolute', left:'50%', transform:'translateX(-50%)', bottom:52, opacity:.9}}>
+                    Hö höö,⬇️hihihihi
+                  </div>
+                  <div style={{position:'absolute', left:'50%', transform:'translateX(-50%)', bottom:8}}>
+                    <button className="btn" onClick={onStartGame}>START</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
