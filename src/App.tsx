@@ -151,6 +151,8 @@ function ConfettiCanvas() {
 }
 
 // --- App ---
+type SettingsTab = 'file' | 'sound' | 'share';
+
 export default function App() {
   const [grid, setGrid] = useState<Cell[][]>(() => emptyGrid());
   const [mode, setMode] = useState<'edit' | 'play'>('edit');
@@ -172,10 +174,6 @@ export default function App() {
   // Countdown vorm Start
   const [preCount, setPreCount] = useState<number | null>(null);
 
-  // Share dropdown
-  const [shareOpen, setShareOpen] = useState(false);
-  const shareRef = useRef<HTMLDivElement | null>(null);
-
   const prevAllCorrect = useRef(false);
   const [warnedLS, setWarnedLS] = useState(false);
 
@@ -185,6 +183,310 @@ export default function App() {
 
   // File input
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // --- Sounds ---
+  const CLICK_URL = '/sounds/Blopp_drück.mp3';
+  const START_URL = '/sounds/Maumau.mp3';
+
+  // --- Globale Lautstärke ---
+  const MUSIC_MASTER = 0.6;
+
+
+  // Playlist-Typ
+  type PlaylistKey = 'lofi' | 'rock' | 'techno';
+
+  // Dateien liegen unter: public/sounds/backgroundmusic/<playlist>/
+  const PLAYLISTS: Record<PlaylistKey, string[]> = {
+    lofi: [
+      '/sounds/backgroundmusic/lofi/lofi_1.mp3',
+      '/sounds/backgroundmusic/lofi/lofi_2.mp3',
+      '/sounds/backgroundmusic/lofi/lofi_3.mp3',
+      '/sounds/backgroundmusic/lofi/Musik_loop.mp3',
+    ],
+    rock: [
+      '/sounds/backgroundmusic/rock/rock_1.mp3',
+      '/sounds/backgroundmusic/rock/rock_2.mp3',
+      '/sounds/backgroundmusic/rock/rock_3.mp3',
+    ],
+    techno: [
+      '/sounds/backgroundmusic/techno/techno_1.mp3',
+      '/sounds/backgroundmusic/techno/techno_2.mp3',
+      '/sounds/backgroundmusic/techno/techno_3.mp3',
+    ],
+  };
+
+  const clickAudioRef = useRef<HTMLAudioElement | null>(null);
+  const startAudioRef = useRef<HTMLAudioElement | null>(null);
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // === Fade-in Steuerung (Musik) ===
+  const fadeRafRef = useRef<number | null>(null);
+  const fadeOnNextPlayRef = useRef<boolean>(true); // beim nächsten Play reinfaden
+  const targetMusicVolRef = useRef<number>(0);
+
+  // UI-State für Sound (persistiert)
+  const [soundMuted, setSoundMuted] = useState<boolean>(() => {
+    try { return localStorage.getItem('sound_muted') === '1'; } catch { return false; }
+  });
+
+  // Effekte-Lautstärke (Fallback auf alten Key sound_volume)
+  const [soundVolume, setSoundVolume] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('effects_volume') ?? localStorage.getItem('sound_volume');
+      const v = Number(raw);
+      return v >= 1 && v <= 10 ? v : 6;
+    } catch { return 6; }
+  });
+
+  // Musik-Lautstärke separat
+  const [musicVolume, setMusicVolume] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem('music_volume'));
+      return v >= 0.5 && v <= 10 ? v : 4;
+    } catch { return 4; }
+  });
+
+  // Ziel-Lautstärke für Fade aktuell halten
+  useEffect(() => {
+    targetMusicVolRef.current = Math.min(1, Math.max(0, (musicVolume / 10) * MUSIC_MASTER));
+  }, [musicVolume]);  
+
+  // Playlist + aktueller Track
+  const [playlist, setPlaylist] = useState<PlaylistKey>(() => {
+    const p = localStorage.getItem('music_playlist') as PlaylistKey | null;
+    return p ?? 'lofi';
+  });
+  const [trackIdx, setTrackIdx] = useState<number>(() => {
+    const n = Number(localStorage.getItem('music_track_idx') ?? '0');
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  });
+
+  // Refs für Audio + aktuelle Playlist (für Events)
+  const playlistRef = useRef<PlaylistKey>(playlist);
+  useEffect(() => { playlistRef.current = playlist; }, [playlist]);
+
+  const userPausedRef = useRef(false);
+
+  // aktuell auszuspielender Track (oder null, wenn Liste leer)
+  const currentTrack = useMemo(() => {
+    const arr = PLAYLISTS[playlist] ?? [];
+    if (!arr.length) return null;
+    const idx = ((trackIdx % arr.length) + arr.length) % arr.length;
+    return arr[idx];
+  }, [playlist, trackIdx]);
+
+  // Audios anlegen
+  useEffect(() => {
+    const click = new Audio(CLICK_URL);
+    const start = new Audio(START_URL);
+    const music = new Audio();         // src wird dynamisch gesetzt
+    click.preload = 'auto';
+    start.preload = 'auto';
+    music.preload = 'auto';
+    music.loop = false;
+
+    clickAudioRef.current  = click;
+    startAudioRef.current  = start;
+    musicAudioRef.current  = music;
+
+    const onEnded = () => {
+      const arr = PLAYLISTS[playlistRef.current] ?? [];
+      if (!arr.length) return;
+      setTrackIdx(prev => {
+        const next = (prev + 1) % arr.length;
+        try { localStorage.setItem('music_track_idx', String(next)); } catch {}
+        return next;
+      });
+    };
+
+    const onPlay  = () => {
+      setIsPlaying(true);
+      const a = musicAudioRef.current;
+      if (!a) return;
+      if (fadeOnNextPlayRef.current) {
+        fadeOnNextPlayRef.current = false;
+        a.volume = 0;                                          // Start bei 0
+        // 10s in Ziel-Lautstärke reinfaden
+        fadeMusicTo(targetMusicVolRef.current, 10000);
+      }
+    };
+    const onPause = () => setIsPlaying(false);
+
+    music.addEventListener('ended', onEnded);
+    music.addEventListener('play',  onPlay);
+    music.addEventListener('pause', onPause);
+
+    const startMusicOnce = () => {
+      if (!soundMuted) void music.play().catch(() => {});
+      window.removeEventListener('pointerdown', startMusicOnce);
+    };
+    window.addEventListener('pointerdown', startMusicOnce, { once: true });
+
+    return () => {
+      music.removeEventListener('ended', onEnded);
+      music.removeEventListener('play',  onPlay);
+      music.removeEventListener('pause', onPause);
+      window.removeEventListener('pointerdown', startMusicOnce);
+      if (fadeRafRef.current) cancelAnimationFrame(fadeRafRef.current);
+
+      clickAudioRef.current = null;
+      startAudioRef.current = null;
+      musicAudioRef.current?.pause();
+      musicAudioRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const resumeOnPointer = () => {
+      const a = musicAudioRef.current;
+      if (!a) return;
+      if (!soundMuted && !userPausedRef.current && a.src && a.paused) {
+        void a.play().catch(() => {});
+      }
+    };
+    window.addEventListener('pointerdown', resumeOnPointer);
+    return () => window.removeEventListener('pointerdown', resumeOnPointer);
+  }, [soundMuted]);
+  
+
+  // Fade-Funktion
+  const fadeMusicTo = (target: number, durationMs = 10000) => {
+    const a = musicAudioRef.current;
+    if (!a) return;
+    if (fadeRafRef.current) cancelAnimationFrame(fadeRafRef.current);
+
+    const start = performance.now();
+    const startVol = a.volume;
+
+    const step = (now: number) => {
+      const p = Math.min(1, (now - start) / durationMs);
+      a.volume = startVol + (target - startVol) * p;
+      if (p < 1) {
+        fadeRafRef.current = requestAnimationFrame(step);
+      } else {
+        fadeRafRef.current = null;
+      }
+    };
+    fadeRafRef.current = requestAnimationFrame(step);
+  };
+
+  // aktuellen Track laden/abspielen, wenn sich playlist/trackIdx ändert
+  useEffect(() => {
+    const a = musicAudioRef.current;
+    if (!a) return;
+  
+    if (!currentTrack) {
+      a.pause();
+      a.removeAttribute('src');
+      a.load();
+      return;
+    }
+  
+    // Quelle setzen und aktiv laden
+    a.src = currentTrack;
+    a.currentTime = 0;
+    a.load();
+  
+    // Nur automatisch starten, wenn nicht gemutet
+    if (!soundMuted) {
+      a.play().catch(() => {
+        // Autoplay-Block → okay, User kann einmal ⏯️ drücken
+      });
+    }
+  }, [currentTrack, soundMuted]);  
+
+  // Lautstärke/Mute auf Audios anwenden + speichern
+  useEffect(() => {
+    const effVol = Math.min(1, Math.max(0.0, soundVolume / 10));
+    const musVol = Math.min(1, Math.max(0.0, (musicVolume / 10) * MUSIC_MASTER));
+
+    const apply = (a: HTMLAudioElement | null, vol: number, isMusic = false) => {
+      if (!a) return;
+      a.muted = soundMuted;
+      // Während eines Fades die Musik-Lautstärke nicht hart überschreiben
+      if (!isMusic || fadeRafRef.current === null) a.volume = vol;
+    };
+    apply(clickAudioRef.current, effVol);
+    apply(startAudioRef.current, effVol);
+    apply(musicAudioRef.current, musVol, true);
+
+    try {
+      localStorage.setItem('sound_muted', soundMuted ? '1' : '0');
+      localStorage.setItem('effects_volume', String(soundVolume));
+      localStorage.setItem('sound_volume', String(soundVolume)); // Backwards-compat
+      localStorage.setItem('music_volume', String(musicVolume));
+    } catch {}
+
+    if (soundMuted) {
+      musicAudioRef.current?.pause();
+    } else {
+      // falls bereits ein Track gesetzt ist, spielen
+      void musicAudioRef.current?.play().catch(() => {});
+    }
+  }, [soundMuted, soundVolume, musicVolume]);
+
+  useEffect(() => {
+    try { localStorage.setItem('music_playlist', playlist); } catch {}
+    // Beim Wechsel immer bei 0 starten
+    setTrackIdx(0);
+    try { localStorage.setItem('music_track_idx', '0'); } catch {}
+  }, [playlist]);
+
+  const playClick = () => {
+    const a = clickAudioRef.current;
+    if (!a) return;
+    try { a.currentTime = 0; void a.play(); } catch {}
+  };
+
+  const playStart = () => {
+    const a = startAudioRef.current;
+    if (!a) return;
+    try { a.currentTime = 0; void a.play(); } catch {}
+  };
+
+  // Spielstatus
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Nächstes Lied
+  const nextTrack = () => {
+    const arr = PLAYLISTS[playlistRef.current] ?? [];
+    if (!arr.length) return;
+    setTrackIdx(prev => {
+      const next = (prev + 1) % arr.length;
+      try { localStorage.setItem('music_track_idx', String(next)); } catch {}
+      return next;
+    });
+  };
+
+  // Play/Pause toggeln
+  const togglePlayPause = () => {
+    const a = musicAudioRef.current;
+    if (!a) return;
+  
+    if (a.paused) {
+      userPausedRef.current = false;
+      if (!a.src && currentTrack) {
+        a.src = currentTrack;
+        a.currentTime = 0;
+        a.load();
+      }
+      void a.play().catch(() => {});
+    } else {
+      userPausedRef.current = true;
+      a.pause();
+    }
+  };
+  
+
+  // Globaler Button-Klicksound
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && el.closest('button, .btn')) playClick();
+    };
+    document.addEventListener('click', handler, true);
+    return () => document.removeEventListener('click', handler, true);
+  }, []);
 
   // --- localStorage availability (once) ---
   const canLSRef = useRef<boolean>(true);
@@ -310,21 +612,6 @@ export default function App() {
     }
   }, [mode]);
 
-  // Share dropdown schließen bei Outside/Escape
-  useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (!shareOpen) return;
-      if (shareRef.current && !shareRef.current.contains(e.target as Node)) setShareOpen(false);
-    }
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setShareOpen(false); }
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [shareOpen]);
-
   // Segmente / Mappings
   const segments = useMemo(() => buildSegments(grid), [grid]);
   const arrowStarts = useMemo(() => {
@@ -447,6 +734,33 @@ export default function App() {
     pairs.forEach(p => (arr[p.idx - 1] = p.ch || ''));
     return arr;
   }, [grid]);
+
+  // --- Settings Modal State ---
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('file');
+
+  function openSettings() {
+    // Default: im Edit-Modus "Datei", sonst "Soundeinstellungen"
+    setSettingsTab(mode === 'edit' && !locked ? 'file' : 'sound');
+    setSettingsOpen(true);
+  }
+
+  // ---- Board width = grid width (Header = Grid-Breite) ----
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [boardW, setBoardW] = useState<number | null>(null);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const update = () => setBoardW(el.offsetWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, []);
 
   // --- Actions ---
   function onCellClick(r: number, c: number) {
@@ -573,23 +887,22 @@ export default function App() {
 
   // Countdown-Start (letzter START-Button)
   function beginCountdown() {
+    playStart(); // Sound beim Start des Countdowns
     setPreCount(5);
   }
 
-  // Countdown-Logik: 5→1 anzeigen, bei 0 Text zeigen, dann Spiel starten
+  // Countdown-Logik
   useEffect(() => {
     if (preCount === null) return;
     if (preCount > 0) {
       const id = setTimeout(() => setPreCount(p => (p ?? 1) - 1), 1000);
       return () => clearTimeout(id);
     }
-    // preCount === 0: "LOS GEHTS ..." zeigen, dann nach 1s starten
     const id = setTimeout(() => {
       setPreCount(null);
       onStartGame();
     }, 1500);
     return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preCount]);
 
   function onStartGame() {
@@ -658,27 +971,18 @@ export default function App() {
 
   // --- Render ---
   return (
-    <div className={`app ${showWin || showStart || modal.open ? 'modal-open' : ''}`}>
+    <div className={`app ${showWin || showStart || modal.open || settingsOpen ? 'modal-open' : ''}`}>
       <style>{`
         @keyframes flashCorrect { 0%{background:#0f141b}25%{background:#065f46}50%{background:#059669}100%{background:#0f141b} }
         .cell.flash-correct { animation: flashCorrect 600ms ease-in-out; }
-        .modalBackdrop { z-index: 10000; }
-        .modal { position: relative; z-index: 10001; }
+
+        /* Overlays (Bar über Backdrop, unter Modal-Fenster) */
+        .modalBackdrop { z-index: 10000; position: fixed; inset: 0; background: rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; }
+        .modal { position: relative; z-index: 10002; background:#111827; border:1px solid #253046; border-radius:12px; padding:16px; color:#e5e7eb; max-width: min(92vw, 900px); box-shadow: 0 20px 60px rgba(0,0,0,.45); }
         .app.modal-open .grid { pointer-events: none; }
 
-        .dropdown { position: relative; }
-        .dropdownMenu {
-          position: absolute; right: 0; top: calc(100% + 8px);
-          background: #1d2430; border: 1px solid #2a3442; border-radius: 8px;
-          padding: 6px; min-width: 220px; z-index: 10002;
-          box-shadow: 0 8px 22px rgba(0,0,0,.35);
-        }
-        .dropdownItem {
-          display: block; width: 100%; text-align: left;
-          background: transparent; border: none; color: #e5e7eb;
-          padding: 8px 10px; border-radius: 6px; cursor: pointer;
-        }
-        .dropdownItem:hover { background: #2a3442; }
+        /* Header: sticky ganz oben, klickbar trotz Backdrop */
+        .bar { position: sticky; top: 0; z-index: 10001; background:#0f141b; border-bottom:1px solid #253046; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
 
         .countOverlay {
           position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -686,128 +990,219 @@ export default function App() {
         }
         .countNum { font-size: 96px; line-height: 1; }
         .countGo  { font-size: 36px; line-height: 1.2; }
+
+        /* Settings layout */
+        .settingsWrap { display:grid; grid-template-columns: 180px minmax(320px, 1fr); gap:14px; min-width: 560px; }
+        .settingsNav { border-right:1px solid #2a3442; padding-right:10px; display:flex; flex-direction:column; gap:6px; }
+        .settingsTabBtn { text-align:left; background:transparent; border:1px solid transparent; color:#e5e7eb; padding:8px 10px; border-radius:8px; cursor:pointer; }
+        .settingsTabBtn:hover { background:#1d2430; border-color:#2a3442; }
+        .settingsTabBtn.active { background:#243043; border-color:#324156; }
+        .settingsBody { padding-left:4px; display:flex; flex-direction:column; gap:10px; }
+
+        .lab { display:block; font-size:13px; opacity:.9; margin-top:8px; }
+        .variantRow { display:flex; gap:8px; flex-wrap:wrap; }
+        .variant { display:flex; align-items:center; gap:6px; }
+
+        .actions { display:flex; gap:8px; flex-wrap:wrap; }
+        .btn { background:#1f2937; border:1px solid #334155; color:#e5e7eb; padding:6px 10px; border-radius:8px; cursor:pointer; }
+        .btn:hover { background:#243041; }
+        .btn.active { background:#334155; }
+        .btn.danger { background:#3b1f24; border-color:#5b2630; }
+        .btn.danger:hover { background:#4a232a; }
+
+        .center { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+        .right { display:flex; align-items:center; gap:8px; }
+
+        /* Bühne mittig; Breite kommt per inline-style (boardW) */
+        .board { margin: 0 auto; }
+
+        /* Lösungswort-Slots */
+        .solutionBar { display:flex; gap:6px; margin-top:12px; flex-wrap:wrap; }
+        .slot { min-width:36px; height:40px; border:1px dashed #2a3442; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 6px; background:#0f141b; }
+        .slotNum { font-size:10px; opacity:.7; margin-right:6px; }
+        .slotChar { font-weight:700; font-size:18px; }
+
+        /* === Fancy Select (dark) === */
+        .selectGroup{
+          display:flex; align-items:center; gap:10px;
+          border:1px solid #2a3442; background:#1d2430;
+          padding:6px 10px; border-radius:10px;
+        }
+        .selectLabel{ opacity:.9; }
+
+        .selectBox{ position:relative; }
+        .selectEl{
+          appearance:none; -webkit-appearance:none; -moz-appearance:none;
+          background:#0f141b; color:#e5e7eb;
+          border:1px solid #2a3442; border-radius:8px;
+          padding:6px 28px 6px 10px;               /* Platz für Pfeil rechts */
+          min-width:120px; font-weight:600;
+        }
+        .selectEl:hover{ border-color:#3a4a62; }
+        .selectEl:focus{ outline:none; border-color:#60a5fa;
+          box-shadow:0 0 0 3px rgba(96,165,250,.18);
+        }
+
+        /* kleiner Chevron als „Pfeil“ */
+        .selectBox::after{
+          content:""; pointer-events:none;
+          position:absolute; right:10px; top:50%; margin-top:-5px;
+          width:8px; height:8px;
+          border-right:2px solid #94a3b8; border-bottom:2px solid #94a3b8;
+          transform:rotate(45deg); transition:transform .15s ease;
+        }
+        .selectBox:focus-within::after{ transform:rotate(225deg); margin-top:-3px; }
+
+        /* (optional) disabled Optionen blasser – nicht überall unterstützt */
+        .selectEl option[disabled]{ color:#64748b; }
+
+        .iconBtn{
+          background:#0f141b; border:1px solid #2a3442; color:#e5e7eb;
+          padding:6px 10px; border-radius:8px; cursor:pointer;
+        }
+        .iconBtn:hover{ background:#1a2331; border-color:#3a4a62; }        
       `}</style>
 
       {showWin && <ConfettiCanvas />}
 
-      <header className="bar">
-      <span className="flipX emote" style={{ fontSize: 28 }}>Miauu 🐈</span>
-        <div className="center" style={{ gap: 12 }}>
-          <span style={{ opacity:.9, padding:'6px 10px', border:'1px solid #2a3442', borderRadius:8, background:'#1d2430' }}>
-            ⏱ {formatTime(winTimeMs ?? elapsedMs)}
-          </span>
-          {!locked ? (
-            <>
-              <button className={mode === 'edit' ? 'btn active' : 'btn'} onClick={() => setMode('edit')}>Editor</button>
-              <button className={mode === 'play' ? 'btn active' : 'btn'} onClick={() => setMode('play')}>Lösen</button>
-              {mode === 'edit' && (
-                <>
-                  <label className="toggle">
-                    <input type="checkbox" checked={solutionMode} onChange={e => setSolutionMode(e.target.checked)} />
-                    Lösungswort-Modus
-                  </label>
-                  {solutionMode && <button className="btn" onClick={onResetSolutionNumbers}>Nummern zurücksetzen</button>}
-                  <button className="btn" onClick={resetTimer}>Timer zurücksetzen</button>
-                  <button className="btn" onClick={clearAnswers}>Antworten löschen</button>
-                </>
-              )}
-            </>
-          ) : (<span style={{opacity:.9}}>MinimalMB's Kreuzworträtsel</span>)}
-        </div>
-
-        <div className="right" style={{ display: 'flex', gap: 8 }}>
-          {!locked ? (
-            <>
-              <button className="btn" onClick={saveLocalJson}>Speichern (Lokal)</button>
-              <button className="btn" onClick={askLoadJson}>Laden (JSON)</button>
-
-              {/* Teilen-Dropdown */}
-              <div className="dropdown" ref={shareRef}>
-                <button className="btn" onClick={() => setShareOpen(o => !o)} aria-expanded={shareOpen}>
-                  Teilen ▾
-                </button>
-                {shareOpen && (
-                  <div className="dropdownMenu" role="menu">
-                    <button className="dropdownItem" onClick={() => { onCopyLink(); setShareOpen(false); }}>
-                      Edit Link kopieren
-                    </button>
-                    <button className="dropdownItem" onClick={() => { onCopySolveOnly(); setShareOpen(false); }}>
-                      Spiel Link kopieren
-                    </button>
-                  </div>
-                )}
+      <div className="board" style={{ width: boardW ? `${boardW}px` : undefined }}>
+        <header className="bar">
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div className="selectGroup">
+              <span className="selectLabel">Miau-Radio🐈</span>
+              <div className="selectBox">
+                <select
+                  className="selectEl"
+                  value={playlist}
+                  onChange={e => setPlaylist(e.target.value as PlaylistKey)}
+                >
+                  <option value="lofi">Lofi</option>
+                  <option value="rock">Rock</option>
+                  <option value="techno">Techno</option>
+                </select>
               </div>
 
-              <button className="btn danger" onClick={onClearAll}>Löschen</button>
-            </>
-          ) : null}
+              {/* Play/Pause */}
+              <button
+                className="iconBtn"
+                type="button"
+                onClick={togglePlayPause}
+                title={isPlaying ? 'Pause' : 'Play'}
+              >
+                ⏯️
+              </button>
 
-          {/* versteckter File-Input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFileChosen(f);
-            }}
-          />
-        </div>
-      </header>
-
-      <div className="grid">
-        {grid.map((row, r) => (
-          <div className="row" key={r}>
-            {row.map((cell, c) => {
-              const isActive = !!activeSeg?.seg.cells.find(cc => cc.r === r && cc.c === c) &&
-                               activeSeg?.seg.cells[activeSeg.index]?.r === r &&
-                               activeSeg?.seg.cells[activeSeg.index]?.c === c;
-
-              const segForCell = segmentByCell.get(`${r}-${c}`);
-              const isFlashing = !!(segForCell && flashingSegs.has(segForCell.id));
-
-              const wrongNow = !!(
-                segForCell && completedSegIds.has(segForCell.id) &&
-                cell.expected && cell.letter && cell.letter !== cell.expected
-              );
-
-              const classNames = [
-                'cell',
-                cell.type === 'clue' ? 'clue' : '',
-                wrongNow ? 'wrong' : '',
-                isActive ? 'active' : '',
-                isFlashing ? 'flash-correct' : ''
-              ].filter(Boolean).join(' ');
-
-              const startDir = arrowStarts.get(`${r}-${c}`);
-
-              return (
-                <div className={classNames} key={`${r}-${c}`} onClick={() => onCellClick(r, c)}>
-                  {cell.type === 'clue' && cell.clue && (
-                    <div className="clueText">{hideClues ? '' : cell.clue.text}</div>
-                  )}
-                  {cell.type === 'empty' && (cell.letter ?? '')}
-                  {startDir === 'RIGHT' && <div className="arrow right" />}
-                  {startDir === 'DOWN'  && <div className="arrow down"  />}
-                  {cell.solutionIndex ? <div className="mini">{cell.solutionIndex}</div> : null}
-                </div>
-              );
-            })}
+              {/* Nächstes Lied */}
+              <button
+                className="iconBtn"
+                type="button"
+                onClick={nextTrack}
+                title="Nächstes Lied"
+              >
+                ⏭️
+              </button>
+            </div>
           </div>
-        ))}
-      </div>
 
-      {solutionSlots.length > 0 && (
-        <div className="solutionBar">
-          {solutionSlots.map((ch, i) => (
-            <div className="slot" key={i}>
-              <span className="slotNum">{i + 1}</span>
-              <span className="slotChar">{ch}</span>
+          <div className="center">
+            <span style={{ opacity:.9, padding:'6px 10px', border:'1px solid #2a3442', borderRadius:8, background:'#1d2430' }}>
+              ⏱ {formatTime(winTimeMs ?? elapsedMs)}
+            </span>
+
+            {!locked ? (
+              <>
+                <button className={mode === 'edit' ? 'btn active' : 'btn'} onClick={() => setMode('edit')}>Editor</button>
+                <button className={mode === 'play' ? 'btn active' : 'btn'} onClick={() => setMode('play')}>Lösen</button>
+
+                {mode === 'edit' && (
+                  <>
+                    <label className="toggle" style={{display:'flex',alignItems:'center',gap:6}}>
+                      <input type="checkbox" checked={solutionMode} onChange={e => setSolutionMode(e.target.checked)} />
+                      Lösungswort-Modus
+                    </label>
+                    {solutionMode && (
+                      <button className="btn" onClick={onResetSolutionNumbers}>Nummern zurücksetzen</button>
+                    )}
+                  </>
+                )}
+
+                <button className="btn" onClick={resetTimer}>Timer zurücksetzen</button>
+              </>
+            ) : (
+              <span style={{opacity:.9}}>MinimalMB's Kreuzworträtsel</span>
+            )}
+          </div>
+
+          <div className="right">
+            <button className="btn" onClick={openSettings}>Einstellungen</button>
+            {/* Für Laden (lokal) */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleFileChosen(f);
+              }}
+            />
+          </div>
+        </header>
+
+        {/* Grid */}
+        <div className="grid" ref={gridRef}>
+          {grid.map((row, r) => (
+            <div className="row" key={r}>
+              {row.map((cell, c) => {
+                const isActive = !!activeSeg?.seg.cells.find(cc => cc.r === r && cc.c === c) &&
+                                 activeSeg?.seg.cells[activeSeg.index]?.r === r &&
+                                 activeSeg?.seg.cells[activeSeg.index]?.c === c;
+
+                const segForCell = segmentByCell.get(`${r}-${c}`);
+                const isFlashing = !!(segForCell && flashingSegs.has(segForCell.id));
+
+                const wrongNow = !!(
+                  segForCell && completedSegIds.has(segForCell.id) &&
+                  cell.expected && cell.letter && cell.letter !== cell.expected
+                );
+
+                const classNames = [
+                  'cell',
+                  cell.type === 'clue' ? 'clue' : '',
+                  wrongNow ? 'wrong' : '',
+                  isActive ? 'active' : '',
+                  isFlashing ? 'flash-correct' : ''
+                ].filter(Boolean).join(' ');
+
+                const startDir = arrowStarts.get(`${r}-${c}`);
+
+                return (
+                  <div className={classNames} key={`${r}-${c}`} onClick={() => onCellClick(r, c)}>
+                    {cell.type === 'clue' && cell.clue && (
+                      <div className="clueText">{hideClues ? '' : cell.clue.text}</div>
+                    )}
+                    {cell.type === 'empty' && (cell.letter ?? '')}
+                    {startDir === 'RIGHT' && <div className="arrow right" />}
+                    {startDir === 'DOWN'  && <div className="arrow down"  />}
+                    {cell.solutionIndex ? <div className="mini">{cell.solutionIndex}</div> : null}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
-      )}
+
+        {solutionSlots.length > 0 && (
+          <div className="solutionBar">
+            {solutionSlots.map((ch, i) => (
+              <div className="slot" key={i}>
+                <span className="slotNum">{i + 1}</span>
+                <span className="slotChar">{ch}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Hinweis-Modal */}
       {modal.open && !locked && (
@@ -927,6 +1322,102 @@ export default function App() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings-Modal */}
+      {settingsOpen && (
+        <div className="modalBackdrop" onClick={() => setSettingsOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3 style={{marginTop:0}}>Einstellungen</h3>
+            <div className="settingsWrap">
+              <aside className="settingsNav">
+                {mode === 'edit' && !locked ? (
+                  <>
+                    <button className={`settingsTabBtn ${settingsTab==='file'?'active':''}`} onClick={() => setSettingsTab('file')}>Datei</button>
+                    <button className={`settingsTabBtn ${settingsTab==='sound'?'active':''}`} onClick={() => setSettingsTab('sound')}>Soundeinstellungen</button>
+                    <button className={`settingsTabBtn ${settingsTab==='share'?'active':''}`} onClick={() => setSettingsTab('share')}>Teilen</button>
+                  </>
+                ) : (
+                  <>
+                    <button className="settingsTabBtn active" onClick={() => setSettingsTab('sound')}>Soundeinstellungen</button>
+                  </>
+                )}
+              </aside>
+
+              <section className="settingsBody">
+                {settingsTab === 'file' && (
+                  <>
+                    <div className="actions">
+                      <button className="btn" onClick={saveLocalJson}>Speichern (Lokal)</button>
+                      <button className="btn" onClick={askLoadJson}>Laden (Lokal)</button>
+                      <button className="btn" onClick={clearAnswers}>Antworten löschen</button>
+                      <button className="btn danger" onClick={onClearAll}>Löschen</button>
+                    </div>
+                  </>
+                )}
+
+                {settingsTab === 'sound' && (
+                  <>
+                    <label className="lab">Sound</label>
+                    <label style={{display:'flex', alignItems:'center', gap:8}}>
+                      <input
+                        type="checkbox"
+                        checked={soundMuted}
+                        onChange={e => setSoundMuted(e.target.checked)}
+                      />
+                      Stumm schalten
+                    </label>
+
+                    {/* Effekte */}
+                    <div style={{display:'grid', gridTemplateColumns:'80px 1fr 28px', alignItems:'center', gap:10}}>
+                      <div>Effekte:</div>
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={10}
+                        step={0.5}
+                        value={soundVolume}
+                        onChange={(e) => setSoundVolume(parseFloat(e.target.value))}
+                        aria-label="Effekte-Lautstärke"
+                        style={{width:'100%'}}
+                      />
+                      <span style={{textAlign:'right'}}>{soundVolume}</span>
+                    </div>
+
+                    {/* Musik */}
+                    <div style={{display:'grid', gridTemplateColumns:'80px 1fr 28px', alignItems:'center', gap:10}}>
+                      <div>Musik:</div>
+                      <input
+                        type="range"
+                        min={0.5}
+                        max={10}
+                        step={0.5}
+                        value={musicVolume}
+                        onChange={(e) => setMusicVolume(parseFloat(e.target.value))}
+                        aria-label="Musik-Lautstärke"
+                        style={{width:'100%'}}
+                      />
+                      <span style={{textAlign:'right'}}>{musicVolume}</span>
+                    </div>
+                  </>
+                )}
+
+                {settingsTab === 'share' && (
+                  <>
+                    <div className="actions">
+                      <button className="btn" onClick={onCopyLink}>Edit Link kopieren</button>
+                      <button className="btn" onClick={onCopySolveOnly}>Spiel Link kopieren</button>
+                    </div>
+                  </>
+                )}
+              </section>
+            </div>
+
+            <div className="actions" style={{justifyContent:'flex-end', marginTop:14}}>
+              <button className="btn" onClick={() => setSettingsOpen(false)}>Schließen</button>
             </div>
           </div>
         </div>
