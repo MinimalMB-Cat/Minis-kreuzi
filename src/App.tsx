@@ -15,7 +15,7 @@ function decodePayload<T>(s: string): T {
 
 // --- Types ---
 type Dir = 'RIGHT' | 'DOWN';
-export type Variant = 'LEFT_CLUE_RIGHT' | 'ABOVE_CLUE_DOWN' | 'LEFT_CLUE_DOWN' | 'ABOVE_CLUE_RIGHT';
+export type Variant = 'LEFT_CLUE_RIGHT' | 'ABOVE_CLUE_DOWN' | 'LEFT_CLUE_DOWN' | 'ABOVE_CLUE_RIGHT' | 'RIGHT_CLUE_DOWN';
 
 type Clue = { text: string; variant: Variant; answer?: string };
 type Cell = {
@@ -75,25 +75,18 @@ function buildSegments(grid: Cell[][]): Segment[] {
       let start: { r: number; c: number };
       let dir: Dir;
 
-      switch (clue.variant) {
-        case 'LEFT_CLUE_RIGHT':
-          start = { r, c: c + 1 }; dir = 'RIGHT';
-          break;
-        case 'ABOVE_CLUE_DOWN':
-          start = { r: r + 1, c }; dir = 'DOWN';
-          break;
-        case 'LEFT_CLUE_DOWN':
-          start = { r, c: c + 1 }; dir = 'DOWN';
-          break;
-        case 'ABOVE_CLUE_RIGHT':
-          // Frage-Feld oben, Pfeil/Zug startet unten und geht nach rechts
-          start = { r: r + 1, c }; dir = 'RIGHT';
-          break;
-        default:
-          // Fallback (sollte nie passieren, schützt aber zur Laufzeit)
-          start = { r, c: c + 1 }; dir = 'RIGHT';
-          break;
+      if (clue.variant === 'LEFT_CLUE_RIGHT') {
+        start = { r, c: c + 1 }; dir = 'RIGHT';
+      } else if (clue.variant === 'ABOVE_CLUE_DOWN') {
+        start = { r: r + 1, c }; dir = 'DOWN';
+      } else if (clue.variant === 'LEFT_CLUE_DOWN') {
+        start = { r, c: c + 1 }; dir = 'DOWN';
+      } else if (clue.variant === 'ABOVE_CLUE_RIGHT') {
+        start = { r: r + 1, c }; dir = 'RIGHT';
+      } else if (clue.variant === 'RIGHT_CLUE_DOWN') {       // <— NEU
+        start = { r, c: c - 1 }; dir = 'DOWN';               // Start links vom Hinweis
       }
+
 
       const cells: { r: number; c: number }[] = [];
       let cur = { ...start };
@@ -1286,6 +1279,12 @@ export default function App() {
                   type="radio" name="v" checked={modal.variant === 'ABOVE_CLUE_RIGHT'}
                   onChange={() => setModal(m => ({ ...m, variant: 'ABOVE_CLUE_RIGHT' }))}/>
                 <span>oben Hinweis, Pfeil → (Start unten, dann rechts)</span>
+              </label>
+              <label className="variant">
+              <input
+                type="radio" name="v" checked={modal.variant === 'RIGHT_CLUE_DOWN'}
+                onChange={() => setModal(m => ({ ...m, variant: 'RIGHT_CLUE_DOWN' }))}/>
+                <span>rechts Hinweis, Pfeil ↓ (Start links, dann runter)</span>
               </label>
             </div>
 
