@@ -1,4 +1,8 @@
 /* eslint-disable react-hooks/exhaustive-deps */
+import React from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+
 declare global { interface Window { LZString: any } }
 
 function encodePayload(obj: unknown): string {
@@ -9,8 +13,6 @@ function decodePayload<T>(s: string): T {
   if (!raw) throw new Error('Decode failed');
   return JSON.parse(raw) as T;
 }
-
-import { useEffect, useMemo, useRef, useState } from 'react';
 
 // --- Types ---
 type Dir = 'RIGHT' | 'DOWN';
@@ -73,14 +75,25 @@ function buildSegments(grid: Cell[][]): Segment[] {
 
       let start: { r: number; c: number };
       let dir: Dir;
-      if (clue.variant === 'LEFT_CLUE_RIGHT') {
-        start = { r, c: c + 1 }; dir = 'RIGHT';
-      } else if (clue.variant === 'ABOVE_CLUE_DOWN') {
-        start = { r: r + 1, c }; dir = 'DOWN';
-      } else if (clue.variant === 'LEFT_CLUE_DOWN') {
-        start = { r, c: c + 1 }; dir = 'DOWN';
-      } else if (clue.variant === 'ABOVE_CLUE_RIGHT') {
-        start = { r: r + 1, c }; dir = 'RIGHT';
+
+      switch (clue.variant) {
+        case 'LEFT_CLUE_RIGHT':
+          start = { r, c: c + 1 }; dir = 'RIGHT';
+          break;
+        case 'ABOVE_CLUE_DOWN':
+          start = { r: r + 1, c }; dir = 'DOWN';
+          break;
+        case 'LEFT_CLUE_DOWN':
+          start = { r, c: c + 1 }; dir = 'DOWN';
+          break;
+        case 'ABOVE_CLUE_RIGHT':
+          // Frage-Feld oben, Pfeil/Zug startet unten und geht nach rechts
+          start = { r: r + 1, c }; dir = 'RIGHT';
+          break;
+        default:
+          // Fallback (sollte nie passieren, schützt aber zur Laufzeit)
+          start = { r, c: c + 1 }; dir = 'RIGHT';
+          break;
       }
 
       const cells: { r: number; c: number }[] = [];
@@ -119,12 +132,12 @@ function ConfettiCanvas() {
   const ref = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const cnv = ref.current!; const ctx = cnv.getContext('2d')!;
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const dpr = Math.max(1, (window.devicePixelRatio || 1));
     function resize() {
       const w = innerWidth, h = innerHeight;
-      cnv.width = Math.floor(w*dpr); cnv.height = Math.floor(h*dpr);
+      cnv.width = Math.floor(w * dpr); cnv.height = Math.floor(h * dpr);
       cnv.style.width = `${w}px`; cnv.style.height = `${h}px`;
-      ctx.setTransform(1,0,0,1,0,0); ctx.scale(dpr,dpr);
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr);
     }
     resize(); addEventListener('resize', resize);
     type P = { x:number;y:number;vx:number;vy:number;r:number;rot:number;vr:number;color:string };
@@ -192,7 +205,6 @@ export default function App() {
 
   // --- Globale Lautstärke ---
   const MUSIC_MASTER = 0.6;
-
 
   // Playlist-Typ
   type PlaylistKey = 'lofi' | 'rock' | 'techno';
@@ -1048,7 +1060,7 @@ export default function App() {
           appearance:none; -webkit-appearance:none; -moz-appearance:none;
           background:#0f141b; color:#e5e7eb;
           border:1px solid #2a3442; border-radius:8px;
-          padding:6px 28px 6px 10px;               /* Platz für Pfeil rechts */
+          padding:6px 28px 6px 10px;
           min-width:120px; font-weight:600;
         }
         .selectEl:hover{ border-color:#3a4a62; }
@@ -1056,7 +1068,6 @@ export default function App() {
           box-shadow:0 0 0 3px rgba(96,165,250,.18);
         }
 
-        /* kleiner Chevron als „Pfeil“ */
         .selectBox::after{
           content:""; pointer-events:none;
           position:absolute; right:10px; top:50%; margin-top:-5px;
@@ -1066,7 +1077,6 @@ export default function App() {
         }
         .selectBox:focus-within::after{ transform:rotate(225deg); margin-top:-3px; }
 
-        /* (optional) disabled Optionen blasser – nicht überall unterstützt */
         .selectEl option[disabled]{ color:#64748b; }
 
         .iconBtn{
@@ -1095,12 +1105,11 @@ export default function App() {
         
         /* ▼ oben-rechts */
         .arrow.down {
-          top: 4px; right: 4px; left: auto; /* wichtig: left zurücksetzen */
+          top: 4px; right: 4px; left: auto;
           border-left: 7px solid transparent;
           border-right: 7px solid transparent;
           border-top: 12px solid #fff;
         }
-        
       `}</style>
 
       {showWin && <ConfettiCanvas />}
@@ -1274,12 +1283,12 @@ export default function App() {
                 <span>links Hinweis, Pfeil ↓ (Start rechts, dann runter)</span>
               </label>
               <label className="variant">
-              <input
-                type="radio" name="v" checked={modal.variant === 'ABOVE_CLUE_RIGHT'}
-                onChange={() => setModal(m => ({ ...m, variant: 'ABOVE_CLUE_RIGHT' }))}/>
+                <input
+                  type="radio" name="v" checked={modal.variant === 'ABOVE_CLUE_RIGHT'}
+                  onChange={() => setModal(m => ({ ...m, variant: 'ABOVE_CLUE_RIGHT' }))}/>
                 <span>oben Hinweis, Pfeil → (Start unten, dann rechts)</span>
               </label>
-              </div>
+            </div>
 
             <label className="lab">Antwort (optional, für Prüfung)</label>
             <input type="text" placeholder="z.B. LAVA"
