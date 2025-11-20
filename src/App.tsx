@@ -15,7 +15,7 @@ function decodePayload<T>(s: string): T {
 
 // --- Types ---
 type Dir = 'RIGHT' | 'DOWN';
-export type Variant = 'LEFT_CLUE_RIGHT' | 'ABOVE_CLUE_DOWN' | 'LEFT_CLUE_DOWN' | 'ABOVE_CLUE_RIGHT' | 'RIGHT_CLUE_DOWN';
+export type Variant = 'LEFT_CLUE_RIGHT' | 'ABOVE_CLUE_DOWN' | 'LEFT_CLUE_DOWN' | 'ABOVE_CLUE_RIGHT' | 'LEFT_OF_CLUE_DOWN';
 
 type Clue = { text: string; variant: Variant; answer?: string };
 type Cell = {
@@ -73,41 +73,41 @@ function buildSegments(grid: Cell[][]): Segment[] {
       if (cell.type !== 'clue' || !cell.clue) continue;
       const clue = cell.clue;
 
-      // Defaults (verhindert TS2454)
-      let start: { r: number; c: number } = { r, c };
+      // Defaults
+      let start: { r: number; c: number } = { r, c: c + 1 };
       let dir: Dir = 'RIGHT';
 
-      // Falls alte gespeicherte Daten kein variant haben
       const variant: Variant = (clue.variant ?? 'LEFT_CLUE_RIGHT') as Variant;
 
-      // Start & Richtung abhängig von der Variante
       switch (variant) {
         case 'LEFT_CLUE_RIGHT':
-          start = { r, c: c + 1 };
-          dir = 'RIGHT';
+          start = { r, c: c + 1 }; dir = 'RIGHT';
           break;
 
         case 'ABOVE_CLUE_DOWN':
-          start = { r: r + 1, c };
-          dir = 'DOWN';
+          start = { r: r + 1, c }; dir = 'DOWN';
           break;
 
         case 'LEFT_CLUE_DOWN':
-          start = { r, c: c + 1 };
-          dir = 'DOWN';
+          start = { r, c: c + 1 }; dir = 'DOWN';
           break;
 
         case 'ABOVE_CLUE_RIGHT':
-          start = { r: r + 1, c };
-          dir = 'RIGHT';
+          start = { r: r + 1, c }; dir = 'RIGHT';
+          break;
+
+        case 'LEFT_OF_CLUE_DOWN':     // ✅ neu: Pfeil links vom Hinweis, Lösung ↓
+          start = { r, c: c - 1 };
+          dir = 'DOWN';
           break;
 
         default:
-          // Fallback
-          start = { r, c: c + 1 };
-          dir = 'RIGHT';
+          start = { r, c: c + 1 }; dir = 'RIGHT';
           break;
       }
+
+      // Falls der Start außerhalb des Grids läge, diesen Hinweis überspringen
+      if (!inBounds(start.r, start.c)) continue;
 
       const cells: { r: number; c: number }[] = [];
       let cur = { ...start };
@@ -1303,10 +1303,10 @@ export default function App() {
                 <span>oben Hinweis, Pfeil → (Start unten, dann rechts)</span>
               </label>
               <label className="variant">
-              <input
-                type="radio" name="v" checked={modal.variant === 'RIGHT_CLUE_DOWN'}
-                onChange={() => setModal(m => ({ ...m, variant: 'RIGHT_CLUE_DOWN' }))}/>
-                <span>rechts Hinweis, Pfeil ↓ (Start links, dann runter)</span>
+                <input
+                  type="radio" name="v" checked={modal.variant === 'LEFT_OF_CLUE_DOWN'}
+                  onChange={() => setModal(m => ({ ...m, variant: 'LEFT_OF_CLUE_DOWN' }))}/>
+                <span>links vom Hinweis, Pfeil ↓ (Start links, dann runter)</span>
               </label>
             </div>
 
