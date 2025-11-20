@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 // --- Types ---
 type Dir = 'RIGHT' | 'DOWN';
-export type Variant = 'LEFT_CLUE_RIGHT' | 'ABOVE_CLUE_DOWN' | 'LEFT_CLUE_DOWN';
+export type Variant = 'LEFT_CLUE_RIGHT' | 'ABOVE_CLUE_DOWN' | 'LEFT_CLUE_DOWN' | 'ABOVE_CLUE_RIGHT';
 
 type Clue = { text: string; variant: Variant; answer?: string };
 type Cell = {
@@ -77,8 +77,10 @@ function buildSegments(grid: Cell[][]): Segment[] {
         start = { r, c: c + 1 }; dir = 'RIGHT';
       } else if (clue.variant === 'ABOVE_CLUE_DOWN') {
         start = { r: r + 1, c }; dir = 'DOWN';
-      } else { // LEFT_CLUE_DOWN
+      } else if (clue.variant === 'LEFT_CLUE_DOWN') {
         start = { r, c: c + 1 }; dir = 'DOWN';
+      } else if (clue.variant === 'ABOVE_CLUE_RIGHT') {
+        start = { r: r + 1, c }; dir = 'RIGHT';
       }
 
       const cells: { r: number; c: number }[] = [];
@@ -201,7 +203,6 @@ export default function App() {
       '/sounds/backgroundmusic/lofi/lofi_1.mp3',
       '/sounds/backgroundmusic/lofi/lofi_2.mp3',
       '/sounds/backgroundmusic/lofi/lofi_3.mp3',
-      '/sounds/backgroundmusic/lofi/Musik_loop.mp3',
     ],
     rock: [
       '/sounds/backgroundmusic/rock/rock_1.mp3',
@@ -1272,7 +1273,13 @@ export default function App() {
                   onChange={() => setModal(m => ({ ...m, variant: 'LEFT_CLUE_DOWN' }))} />
                 <span>links Hinweis, Pfeil ↓ (Start rechts, dann runter)</span>
               </label>
-            </div>
+              <label className="variant">
+              <input
+                type="radio" name="v" checked={modal.variant === 'ABOVE_CLUE_RIGHT'}
+                onChange={() => setModal(m => ({ ...m, variant: 'ABOVE_CLUE_RIGHT' }))}/>
+                <span>oben Hinweis, Pfeil → (Start unten, dann rechts)</span>
+              </label>
+              </div>
 
             <label className="lab">Antwort (optional, für Prüfung)</label>
             <input type="text" placeholder="z.B. LAVA"
