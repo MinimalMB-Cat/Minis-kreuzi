@@ -1,6 +1,8 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+// einmal "React" als Wert benutzen, damit TS nicht meckert
+void React;
 
 declare global { interface Window { LZString: any } }
 
