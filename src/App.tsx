@@ -238,6 +238,17 @@ export default function App() {
   );
   const [highscoreLoading, setHighscoreLoading] = useState(false);
   const [highscoreError, setHighscoreError] = useState<string | null>(null);
+    // Suche + Pagination
+    const PAGE_SIZE = 10;
+    const [hsPage, setHsPage] = useState(0);          // 0-basiert
+    const [hsSearch, setHsSearch] = useState('');
+    const [hsSearchResult, setHsSearchResult] = useState<number | null>(null); // Platz oder -1
+  
+    // Bei Modus- oder Datumswechsel wieder auf Seite 0 springen & Suchergebnis zurücksetzen
+    useEffect(() => {
+      setHsPage(0);
+      setHsSearchResult(null);
+    }, [highscoreMode, highscoreDate]);  
 
   // Nickname des Spielers (wird im Start-Dialog gesetzt)
   const [nicknameInput, setNicknameInput] = useState(() => {
@@ -271,7 +282,6 @@ export default function App() {
   const [scoreSaved, setScoreSaved] = useState(false);
   const [scoreError, setScoreError] = useState<string | null>(null);
   const MIN_NICKNAME_LENGTH = 3;
-  const RELOAD_MARKER_MS = 1;
   const canStart = nicknameInput.trim().length >= MIN_NICKNAME_LENGTH;
   const highscoreSubmittedRef = useRef(false);
 
@@ -305,8 +315,8 @@ export default function App() {
     try {
       const body = {
         nickname: nick.slice(0, 20),
-        timeMs: RELOAD_MARKER_MS, // <-- Backend erwartet camelCase und > 0
-      };
+        timeMs: 0,
+      };      
 
       const res = await fetch('/api/highscores', {
         method: 'POST',
@@ -395,82 +405,121 @@ export default function App() {
         setHighscoreLoading(false);
       }
     }
+
+    function handleHighscoreSearch() {
+      const term = hsSearch.trim().toLowerCase();
+      if (!term) {
+        setHsSearchResult(null);
+        return;
+      }
+  
+      // In der aktuell gefilterten Liste suchen (abhängig vom Tab)
+      const list = filteredHighscores;
+      const idx = list.findIndex(row =>
+        row.nickname.toLowerCase().includes(term)
+      );
+  
+      if (idx === -1) {
+        setHsSearchResult(-1);
+        return;
+      }
+  
+      const rank = idx + 1; // 1-basiert
+      setHsSearchResult(rank);
+  
+      const page = Math.floor(idx / PAGE_SIZE);
+      setHsPage(page);
+    }  
   
     // Beim ersten Laden der Seite einmal Highscores holen
     useEffect(() => {
       void loadHighscores();
     }, []);
   
-    // Gefilterte/Sortierte Highscores für die Anzeige
-    const filteredHighscores = useMemo(() => {
-      const list = [...highscores];
-  
-      const byDate = (row: HighscoreRow, dateStr: string) =>
-        row.created_at.slice(0, 10) === dateStr;
-  
-      let filtered: HighscoreRow[];
-  
-      if (highscoreMode === 'today') {
-        const today = new Date().toISOString().slice(0, 10);
-        filtered = list.filter(r => byDate(r, today));
-      } else if (highscoreMode === 'date') {
-        filtered = list.filter(r => byDate(r, highscoreDate));
-      } else {
-        filtered = list;
-      }
-  
-      // Beste Zeiten nach oben, Reloads (time_ms <= RELOAD_MARKER_MS) ganz nach unten
-      filtered.sort((a, b) => {
-        const ta = a.time_ms <= RELOAD_MARKER_MS ? Number.POSITIVE_INFINITY : a.time_ms;
-        const tb = b.time_ms <= RELOAD_MARKER_MS ? Number.POSITIVE_INFINITY : b.time_ms;
-        return ta - tb;
-      });
-  
-      return filtered.slice(0, 10);
-    }, [highscores, highscoreMode, highscoreDate]);  
+      // Voll gefilterte Liste (ohne Seitenlimit)
+  const filteredHighscores = useMemo(() => {
+    const list = [...highscores];
+
+    const byDate = (row: HighscoreRow, dateStr: string) =>
+      row.created_at.slice(0, 10) === dateStr;
+
+    let filtered: HighscoreRow[];
+
+    if (highscoreMode === 'today') {
+      const today = new Date().toISOString().slice(0, 10);
+      filtered = list.filter(r => byDate(r, today));
+    } else if (highscoreMode === 'date') {
+      filtered = list.filter(r => byDate(r, highscoreDate));
+    } else {
+      // 'best' → alle
+      filtered = list;
+    }
+
+    // Beste Zeiten nach oben (Reload-Zeiten = time_ms 0 nach hinten)
+    filtered.sort((a, b) => {
+      const ta = a.time_ms === 0 ? Number.POSITIVE_INFINITY : a.time_ms;
+      const tb = b.time_ms === 0 ? Number.POSITIVE_INFINITY : b.time_ms;
+      return ta - tb;
+    });
+
+    return filtered;
+  }, [highscores, highscoreMode, highscoreDate]);
+
+  // Seiteninfos aus der gefilterten Liste ableiten
+  const totalPages = Math.max(1, Math.ceil(filteredHighscores.length / PAGE_SIZE));
+  const currentPage = Math.min(hsPage, totalPages - 1);
+
+  const pageHighscores = useMemo(
+    () =>
+      filteredHighscores.slice(
+        currentPage * PAGE_SIZE,
+        (currentPage + 1) * PAGE_SIZE
+      ),
+    [filteredHighscores, currentPage]
+  );
   
     // ---- Highscore per POST speichern ----
     async function submitHighscore() {
       if (highscoreSubmittedRef.current) return;
-
+    
       const timeToSave = winTimeMs ?? elapsedMs;
       const nick = nicknameInput.trim();
-
-      if (!nick || timeToSave <= 0) return;
-      if (scoreSaving || scoreSaved || scoreError) return;
-
+    
+      if (!nick || !timeToSave) return;
+      if (scoreSaving || scoreSaved) return;
+    
+      // <<< NEU: direkt hier setzen
       highscoreSubmittedRef.current = true;
-
+    
       try {
         setScoreSaving(true);
         setScoreError(null);
-
+    
         const body = {
           nickname: nick.slice(0, 20),
-          timeMs: Math.round(timeToSave), // <-- wieder camelCase
+          timeMs: Math.round(timeToSave),   // <- hier gleich noch von time_ms auf timeMs ändern
         };
-
+    
         const res = await fetch('/api/highscores', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-
+    
         if (!res.ok) {
           const text = await res.text().catch(() => '');
           throw new Error(text || `HTTP ${res.status}`);
         }
-
+    
         setScoreSaved(true);
         await loadHighscores();
       } catch (err) {
         console.error('Highscore-Save-Fehler', err);
         setScoreError('Konnte Highscore nicht speichern.');
-        highscoreSubmittedRef.current = false; // erlaubt ggf. späteres Retry
       } finally {
         setScoreSaving(false);
       }
-    }
+    }    
 
   useEffect(() => {
     if (!showWin) return;
@@ -1883,12 +1932,71 @@ export default function App() {
           border:1px solid #374151;
           padding:4px 6px;
         }
-
         .hsList{
           margin-top:6px;
           max-height:360px;
           overflow:auto;
           padding-right:2px;
+        }
+        .hsSearchRow{
+          display:flex;
+          gap:6px;
+          margin:6px 0 2px;
+        }
+        .hsSearchRow input{
+          flex:1;
+          background:#020617;
+          color:#e5e7eb;
+          border-radius:8px;
+          border:1px solid #374151;
+          padding:4px 6px;
+          font-size:12px;
+        }
+        .hsSearchBtn{
+          font-size:11px;
+          padding:4px 8px;
+          border-radius:999px;
+          border:1px solid #4b5563;
+          background:#020617;
+          color:#e5e7eb;
+          cursor:pointer;
+        }
+        .hsSearchBtn:hover{
+          background:#1f2937;
+          border-color:#6b7280;
+        }
+        .hsSearchBtn:disabled{
+          opacity:.5;
+          cursor:not-allowed;
+        }
+        .hsSearchInfo{
+          font-size:11px;
+          opacity:.85;
+          margin-bottom:2px;
+        }
+        .hsPager{
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          margin-top:6px;
+          font-size:11px;
+          opacity:.85;
+        }
+        .hsPagerBtn{
+          min-width:28px;
+          height:22px;
+          border-radius:999px;
+          border:1px solid #374151;
+          background:#020617;
+          color:#e5e7eb;
+          cursor:pointer;
+        }
+        .hsPagerBtn:disabled{
+          opacity:.4;
+          cursor:not-allowed;
+        }
+        .hsPagerBtn:not(:disabled):hover{
+          background:#111827;
         }
         .hsList ol{
           list-style:none;
@@ -2104,47 +2212,112 @@ export default function App() {
           </button>
         </div>
 
-        <div className="hsDateRow">
-          <span>Datum:</span>
+        {highscoreMode !== 'best' && (
+          <div className="hsDateRow">
+            <span>Datum:</span>
+            <input
+              type="date"
+              value={highscoreDate}
+              onChange={e => {
+                setHighscoreDate(e.target.value);
+                setHighscoreMode('date');
+              }}
+            />
+          </div>
+        )}
+
+        <div className="hsSearchRow">
           <input
-            type="date"
-            value={highscoreDate}
-            onChange={e => {
-              setHighscoreDate(e.target.value);
-              setHighscoreMode('date');
+            type="text"
+            placeholder="Nickname suchen…"
+            value={hsSearch}
+            onChange={e => setHsSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') handleHighscoreSearch();
             }}
           />
+          <button
+            type="button"
+            className="hsSearchBtn"
+            onClick={handleHighscoreSearch}
+          >
+            Suchen
+          </button>
         </div>
+
+        {hsSearchResult !== null && (
+          <div className="hsSearchInfo">
+            {hsSearchResult === -1
+              ? 'Kein Eintrag mit diesem Nickname in dieser Liste.'
+              : `Platz ${hsSearchResult} in der aktuellen Ansicht.`}
+          </div>
+        )}
 
         <div className="hsList">
           {highscoreLoading && <div className="hsLoading">Lade Highscores…</div>}
           {highscoreError && <div className="hsError">{highscoreError}</div>}
 
-          {!highscoreLoading && !highscoreError && filteredHighscores.length === 0 && (
-            <div className="hsEmpty">Keine Einträge für diese Auswahl.</div>
-          )}
+          {!highscoreLoading &&
+            !highscoreError &&
+            filteredHighscores.length === 0 && (
+              <div className="hsEmpty">Keine Einträge für diese Auswahl.</div>
+            )}
 
-          {!highscoreLoading && !highscoreError && filteredHighscores.length > 0 && (
-            <ol>
-              {filteredHighscores.map((row, idx) => (
-                <li key={row.id ?? idx}>
-                  <div className="hsRow">
-                    <span className="hsRank">{idx + 1}.</span>
-                    <span className="hsNick">{row.nickname}</span>
-                    <span className="hsTime">
-                    {row.time_ms <= RELOAD_MARKER_MS ? 'Reload' : formatTime(row.time_ms)}
+          {!highscoreLoading &&
+            !highscoreError &&
+            filteredHighscores.length > 0 && (
+              <>
+                <ol>
+                  {pageHighscores.map((row, idx) => (
+                    <li key={row.id ?? `${row.nickname}-${idx}`}>
+                      <div className="hsRow">
+                        {/* globale Platznummer: Index in Gesamtliste, nicht nur Seite */}
+                        <span className="hsRank">
+                          {currentPage * PAGE_SIZE + idx + 1}.
+                        </span>
+                        <span className="hsNick">{row.nickname}</span>
+                        <span className="hsTime">
+                          {row.time_ms === 0 ? 'Reload' : formatTime(row.time_ms)}
+                        </span>
+                      </div>
+                      <div className="hsDate">
+                        {new Date(row.created_at).toLocaleString('de-DE', {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                        })}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+
+                {/* Pager */}
+                <div className="hsPager">
+                  <button
+                    type="button"
+                    className="hsPagerBtn"
+                    disabled={currentPage === 0}
+                    onClick={() =>
+                      setHsPage(p => Math.max(0, p - 1))
+                    }
+                  >
+                    ◀
+                  </button>
+                  <span>
+                    Seite {currentPage + 1} / {totalPages}
                   </span>
-                  </div>
-                  <div className="hsDate">
-                    {new Date(row.created_at).toLocaleString('de-DE', {
-                      dateStyle: 'short',
-                      timeStyle: 'short',
-                    })}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
+                  <button
+                    type="button"
+                    className="hsPagerBtn"
+                    disabled={currentPage >= totalPages - 1}
+                    onClick={() =>
+                      setHsPage(p => Math.min(totalPages - 1, p + 1))
+                    }
+                  >
+                    ▶
+                  </button>
+                </div>
+              </>
+            )}
         </div>
       </aside>
       </div>{/* Ende .mainLayout */}
