@@ -437,33 +437,50 @@ export default function App() {
     }, []);
   
       // Voll gefilterte Liste (ohne Seitenlimit)
-  const filteredHighscores = useMemo(() => {
-    const list = [...highscores];
-
-    const byDate = (row: HighscoreRow, dateStr: string) =>
-      row.created_at.slice(0, 10) === dateStr;
-
-    let filtered: HighscoreRow[];
-
-    if (highscoreMode === 'today') {
-      const today = new Date().toISOString().slice(0, 10);
-      filtered = list.filter(r => byDate(r, today));
-    } else if (highscoreMode === 'date') {
-      filtered = list.filter(r => byDate(r, highscoreDate));
-    } else {
-      // 'best' → alle
-      filtered = list;
-    }
-
-    // Beste Zeiten nach oben (Reload-Zeiten = time_ms 0 nach hinten)
-    filtered.sort((a, b) => {
-      const ta = a.time_ms === 0 ? Number.POSITIVE_INFINITY : a.time_ms;
-      const tb = b.time_ms === 0 ? Number.POSITIVE_INFINITY : b.time_ms;
-      return ta - tb;
-    });
-
-    return filtered;
-  }, [highscores, highscoreMode, highscoreDate]);
+      const filteredHighscores = useMemo(() => {
+        const list = [...highscores];
+      
+        const byDate = (row: HighscoreRow, dateStr: string) =>
+          row.created_at.slice(0, 10) === dateStr;
+      
+        const todayStr = new Date().toISOString().slice(0, 10);
+      
+        let base: HighscoreRow[];
+      
+        if (highscoreMode === 'today') {
+          // Alle Einträge von heute (inkl. Reload), sortiert nach Zeit
+          base = list.filter(r => byDate(r, todayStr));
+        } else if (highscoreMode === 'date') {
+          // Alle Einträge für ausgewähltes Datum
+          base = list.filter(r => byDate(r, highscoreDate));
+        } else {
+          // 'best' → Beste Zeit pro Nickname für den ausgewählten Tag
+          const dayRows = list
+            .filter(r => byDate(r, highscoreDate))
+            .filter(r => r.time_ms > 0); // Reloads NICHT für "beste Zeit"
+      
+          const bestByNick = new Map<string, HighscoreRow>();
+      
+          for (const row of dayRows) {
+            const key = row.nickname.trim().toLowerCase() || '(leer)';
+            const prev = bestByNick.get(key);
+      
+            if (!prev || row.time_ms < prev.time_ms || prev.time_ms === 0) {
+              bestByNick.set(key, row);
+            }
+          }
+      
+          base = Array.from(bestByNick.values());
+        }
+      
+        // Sortierung: beste Zeit zuerst, Reloads nach hinten
+        base.sort((a, b) => {
+          const ta = a.time_ms === 0 ? Number.POSITIVE_INFINITY : a.time_ms;
+          const tb = b.time_ms === 0 ? Number.POSITIVE_INFINITY : b.time_ms;
+          return ta - tb;
+        });
+        return base;
+      }, [highscores, highscoreMode, highscoreDate]);      
 
   // Seiteninfos aus der gefilterten Liste ableiten
   const totalPages = Math.max(1, Math.ceil(filteredHighscores.length / PAGE_SIZE));
@@ -873,18 +890,21 @@ export default function App() {
 
   // --- localStorage availability (once) ---
   const canLSRef = useRef<boolean>(true);
-  if (canLSRef.current === true) {
+
+  useEffect(() => {
     try {
       const t = '__ls_test__';
       localStorage.setItem(t, '1');
       localStorage.removeItem(t);
+      canLSRef.current = true;
     } catch {
       canLSRef.current = false;
       if (!warnedLS) {
+        setWarnedLS(true);
         console.warn('localStorage nicht verfügbar – Autosave deaktiviert.');
       }
     }
-  }
+  }, []);
 
   const formatTime = (ms: number) => {
     const total = Math.max(0, Math.floor(ms));
@@ -2212,19 +2232,43 @@ export default function App() {
           </button>
         </div>
 
-        {highscoreMode !== 'best' && (
-          <div className="hsDateRow">
-            <span>Datum:</span>
-            <input
-              type="date"
-              value={highscoreDate}
-              onChange={e => {
-                setHighscoreDate(e.target.value);
+        <div className="hsDateRow">
+          <span>Datum:</span>
+          <input
+            type="date"
+            value={highscoreDate}
+            onChange={e => {
+              const value = e.target.value;
+              setHighscoreDate(value);
+
+              // Wenn du im "Heute"-Tab bist und ein Datum auswählst,
+              // wechseln wir in den "date"-Modus (alle Zeiten für diesen Tag).
+              if (highscoreMode === 'today') {
                 setHighscoreMode('date');
-              }}
-            />
-          </div>
-        )}
+              }
+              // Wenn du im "best"-Tab bist, bleiben wir im best-Modus,
+              // aber mit neuem Datum.
+            }}
+          />
+        </div>
+        
+        <button
+          type="button"
+          className={`hsTabBtn ${highscoreMode === 'today' ? 'active' : ''}`}
+          onClick={() => {
+            setHighscoreMode('today');
+            setHighscoreDate(new Date().toISOString().slice(0, 10));
+          }}
+        >
+          Heute
+        </button>
+        <button
+          type="button"
+          className={`hsTabBtn ${highscoreMode === 'best' ? 'active' : ''}`}
+          onClick={() => setHighscoreMode('best')}
+        >
+          Beste Zeit
+        </button>
 
         <div className="hsSearchRow">
           <input
