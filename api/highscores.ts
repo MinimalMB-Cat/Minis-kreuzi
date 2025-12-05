@@ -133,7 +133,7 @@ async function handlePost(req: VercelRequest, res: VercelResponse) {
   if (
     typeof timeMs !== 'number' ||
     !Number.isFinite(timeMs) ||
-    timeMs > 0
+    timeMs < 0
   ) {
     res.status(400).json({ error: 'timeMs fehlt oder ist ungültig.' });
     return;
