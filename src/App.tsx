@@ -311,29 +311,35 @@ export default function App() {
   async function submitReloadMarker(nickname: string) {
     const nick = nickname.trim();
     if (!nick) return;
-
+  
     try {
+      setHighscoreError(null);
+      setHighscoreLoading(true);
+  
       const body = {
         nickname: nick.slice(0, 20),
-        timeMs: 0,
-      };      
-
+        timeMs: 0,        // Reload = 0 ms
+      };
+  
       const res = await fetch('/api/highscores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-
+  
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(text || `HTTP ${res.status}`);
       }
-
+  
       await loadHighscores();
     } catch (err) {
       console.error('Reload-Marker-Fehler', err);
+      setHighscoreError('Konnte Reload-Highscore nicht speichern.');
+    } finally {
+      setHighscoreLoading(false);
     }
-  }
+  }  
 
   // Beim ersten Laden prüfen, ob ein Run im letzten Tab "offen" war.
   // Wenn ja: Reload-Marker speichern und den Marker löschen.
@@ -2251,24 +2257,6 @@ export default function App() {
             }}
           />
         </div>
-        
-        <button
-          type="button"
-          className={`hsTabBtn ${highscoreMode === 'today' ? 'active' : ''}`}
-          onClick={() => {
-            setHighscoreMode('today');
-            setHighscoreDate(new Date().toISOString().slice(0, 10));
-          }}
-        >
-          Heute
-        </button>
-        <button
-          type="button"
-          className={`hsTabBtn ${highscoreMode === 'best' ? 'active' : ''}`}
-          onClick={() => setHighscoreMode('best')}
-        >
-          Beste Zeit
-        </button>
 
         <div className="hsSearchRow">
           <input
