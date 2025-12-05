@@ -320,7 +320,6 @@ export default function App() {
         nickname: nick.slice(0, 20),
         timeMs: 0,        // Reload = 0 ms
       };
-      
   
       const res = await fetch('/api/highscores', {
         method: 'POST',
