@@ -317,7 +317,7 @@ export default function App() {
       setHighscoreLoading(true);
   
       const body = {
-        nickname: nick.slice(0, 20),
+        nickname: nick.slice(0, 18),
         timeMs: 0,        // Reload = 0 ms
       };
   
@@ -1909,7 +1909,7 @@ export default function App() {
         .highscorePanel{
           position: relative;
           z-index: 10003;  /* über dem dunklen Backdrop & Popup */
-          width:260px;
+          width:310px;
           background:#020617;
           border-radius:12px;
           border:1px solid #1f2937;
@@ -1926,6 +1926,25 @@ export default function App() {
           align-items:center;
           justify-content:space-between;
         }
+
+        .hsReloadBtn{
+          background:#020617;
+          border-radius:999px;
+          border:1px solid #374151;
+          width:24px;
+          height:24px;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          font-size:13px;
+          cursor:pointer;
+          padding:0;
+        }
+        .hsReloadBtn:hover{
+          background:#111827;
+          border-color:#4b5563;
+        }
+
         .hsTabs{
           display:flex;
           gap:6px;
@@ -2045,6 +2064,7 @@ export default function App() {
         }
         .hsNick{
           flex:1;
+          margin-right:8px;
           white-space:nowrap;
           overflow:hidden;
           text-overflow:ellipsis;
@@ -2221,6 +2241,14 @@ export default function App() {
       <aside className="highscorePanel">
         <h3>
           <span>🏆 Highscores</span>
+          <button
+            type="button"
+            className="hsReloadBtn"
+            onClick={() => void loadHighscores()}
+            title="Liste aktualisieren"
+          >
+            ⟳
+          </button>
         </h3>
 
         <div className="hsTabs">
