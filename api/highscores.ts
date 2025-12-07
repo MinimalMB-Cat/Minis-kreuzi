@@ -104,7 +104,7 @@ async function handlePost(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const nickClean = nickname.trim().slice(0, 32); // max 32 Zeichen
+  const nickClean = nickname.trim().slice(0, 18); // max 32 Zeichen
   const timeInt = Math.round(timeMs);
 
   const row = await withClient(async (client) => {
