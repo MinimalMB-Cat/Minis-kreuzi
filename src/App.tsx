@@ -2496,7 +2496,7 @@ export default function App() {
                   Wähle deinen Start-Modus:
                 </p>
                 <p style={{ opacity: 0.9, marginTop: 8, textAlign: 'center' }}>
-                  <strong>🚀 Action-Mini-Modus</strong>oder{' '}
+                  <strong>🚀 Action-Mini-Modus </strong>oder{' '}
                   <strong>😴 Langweiliger Modus</strong>
                 </p>
                 <p style={{ opacity: 0.9, marginTop: 8, textAlign: 'center' }}>
